@@ -39,7 +39,7 @@ import java.util.*
 import kotlin.collections.ArrayList
 
 
-class MainActivity_Test : AppCompatActivity() , PlayerCallback {
+class MainActivityTest : AppCompatActivity() , PlayerCallback {
     var IS_CLIENT = true
 
     var isDestroy = false
@@ -85,7 +85,7 @@ class MainActivity_Test : AppCompatActivity() , PlayerCallback {
             if (!mBound) {
                 val binder = service as ExoPlayerService.LocalBinder
                 playerService = binder.service
-                playerService.addPlayerCallback(this@MainActivity_Test)
+                playerService.addPlayerCallback(this@MainActivityTest)
                 mBound = true
             }
         }
@@ -100,7 +100,7 @@ class MainActivity_Test : AppCompatActivity() , PlayerCallback {
             if (!mBound) {
                 val binder = service as ExoPlayerServiceAudioTrack.LocalBinder
                 playerServiceAudioTrack = binder.service
-                playerServiceAudioTrack.addPlayerCallback(this@MainActivity_Test)
+                playerServiceAudioTrack.addPlayerCallback(this@MainActivityTest)
                 mBound = true
             }
         }
@@ -114,7 +114,7 @@ class MainActivity_Test : AppCompatActivity() , PlayerCallback {
             if (!mBound) {
                 val binder = service as ExoPlayerServiceMediaPlayerTest.LocalBinder
                 playerServiceMediaPlayer = binder.service
-                playerServiceMediaPlayer.addPlayerCallback(this@MainActivity_Test)
+                playerServiceMediaPlayer.addPlayerCallback(this@MainActivityTest)
                 mBound = true
             }
         }
@@ -897,7 +897,7 @@ class MainActivity_Test : AppCompatActivity() , PlayerCallback {
 
                             if (byteLength > 0) {
                                 val logcat = System.currentTimeMillis()
-                                val stamp = logcat - this@MainActivity_Test.logcat
+                                val stamp = logcat - this@MainActivityTest.logcat
                                 val time = getTimeStamp(stamp)
                                 Handler(Looper.getMainLooper()).post {
                                     tv_logcat.text = "$time , $byteLength bytes"
@@ -934,7 +934,7 @@ class MainActivity_Test : AppCompatActivity() , PlayerCallback {
                             val byteLength = bleProtocol.contentLength
 
                             if (byteLength > 0) {
-                                if (startPage == this@MainActivity_Test.startPage) {
+                                if (startPage == this@MainActivityTest.startPage) {
                                     //같은 페이지인지 확인
                                     val thumbValue = uiHandler.obtainMessage(
                                         AppConst.SERVER_TO_CLIENT.MELON_CHART_LIST_THUMB,

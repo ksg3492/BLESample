@@ -35,7 +35,7 @@
 <!--            </intent-filter>-->
 <!--        </activity>-->
         <activity
-            android:name=".test.MainActivity_Test"
+            android:name=".test.MainActivityTest"
             android:screenOrientation="sensorPortrait"
             >
             <intent-filter>
