@@ -9,6 +9,7 @@ import android.os.IBinder;
 import android.os.Message;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.google.android.exoplayer2.Player;
@@ -29,6 +30,9 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
     private PlayerCallback playerCallback;
 
     private PrepareThread mPrepareThread;
+    private Thread mAddbyteThread;
+
+    private BufferMediaDataSource mediaDataSource = null;
 
     public class LocalBinder extends Binder {
         public ExoPlayerServiceMediaPlayerTest getService() {
@@ -123,6 +127,12 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
 
         }
 
+        addByteHandler.removeMessages(0);
+        if (mAddbyteThread != null) {
+            mAddbyteThread.interrupt();
+            mAddbyteThread = null;
+        }
+
         if (mPrepareThread != null) {
             release();
             mPrepareThread.interrupt();
@@ -139,10 +149,36 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
 
     @Override
     public void addByteData() {
-        if (mPrepareThread != null && mPrepareThread.isPrepared()) {
-            mPrepareThread.addByte();
+        if (mPrepareThread != null && mPrepareThread.isPrepared() && mPrepareThread.isAddbyteDone()) {
+            addByteHandler.removeMessages(0);
+            if (mAddbyteThread != null) {
+                mAddbyteThread.interrupt();
+                mAddbyteThread = null;
+            }
+
+            mAddbyteThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    if (mPrepareThread != null && mPrepareThread.isPrepared()) {
+                        mPrepareThread.addByte();
+                    }
+                }
+            });
+            mAddbyteThread.start();
+        } else {
+            addByteHandler.removeMessages(0);
+            addByteHandler.sendEmptyMessageDelayed(0, 500);
         }
     }
+
+    private Handler addByteHandler = new Handler() {
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            super.handleMessage(msg);
+
+            addByteData();
+        }
+    };
 
     @Override
     public void setPlay() {
@@ -220,7 +256,6 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
 
     class PrepareThread extends Thread {
         private MediaPlayer mediaPlayer = null;
-        private BufferMediaDataSource mediaDataSource = null;
 
         private String mFilePath = "";
         private long mPreparedSize = 0L;
@@ -233,6 +268,7 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
 
         private int fileLength = 0;
         private boolean isPrepared = false;
+        private boolean isAddbyteDone = true;
 
         public PrepareThread(String url, int length) {
             mFilePath = url;
@@ -284,12 +320,18 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
             return isPrepared;
         }
 
+        public boolean isAddbyteDone() {
+            return isAddbyteDone;
+        }
+
         public void addByte() {
             if (mediaDataSource == null) {
+                isAddbyteDone = true;
                 return;
             }
 
             try {
+                isAddbyteDone = false;
                 Log.e("SG2",Util.Companion.isMainLooper() + " ] addByte()");
                 byte[] data = readFileToByteArray(new File(mFilePath));
 
@@ -298,6 +340,7 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
                 System.arraycopy(data, index, newByte, 0, data.length - index);
 
                 mediaDataSource.inputData(newByte, newByte.length);
+                isAddbyteDone = true;
             }catch (Exception e) {
                 Log.e("SG2","addByte() Error : " , e);
             }
@@ -331,6 +374,13 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
                             playerCallback.onBuffering(buffering);
                         }
                     }
+
+                    @Override
+                    public void onPreload(int percent) {
+                        if (playerCallback != null) {
+                            playerCallback.onPreload(percent);
+                        }
+                    }
                 });
                 addByte();
                 Log.e("SG2", Util.Companion.isMainLooper() + "] Mediaplayer onPrepare 요청");
@@ -362,6 +412,9 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
         public void setPlay() {
             try {
                 mediaPlayer.start();
+                if (playerCallback != null) {
+                    playerCallback.onPlayed();
+                }
             }catch (Exception e) {
 
             }
@@ -370,6 +423,9 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
         public void setPause() {
             try {
                 mediaPlayer.pause();
+                if (playerCallback != null) {
+                    playerCallback.onPaused();
+                }
             }catch (Exception e) {
 
             }
@@ -392,6 +448,9 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
             if (mediaPlayer != null) {
                 mediaPlayer.stop();
             }
+            if (playerCallback != null) {
+                playerCallback.onPaused();
+            }
         }
 
         private void setRelease() {
@@ -406,6 +465,10 @@ public class ExoPlayerServiceMediaPlayerTest extends Service implements PlayerCo
                 mediaPlayer.release();
             } catch (Exception e) { }
             mediaPlayer = null;
+
+            if (playerCallback != null) {
+                playerCallback.onPaused();
+            }
         }
     }
 }

@@ -19,6 +19,7 @@ public class BufferMediaDataSource extends MediaDataSource {
 
     private BufferingCallback callback;
     private boolean bufferFlag = false;
+    private boolean isStop = false;
 
     public BufferMediaDataSource(int fileSize, BufferingCallback callback) {
         this.fileSize = fileSize;
@@ -32,13 +33,18 @@ public class BufferMediaDataSource extends MediaDataSource {
     public void inputData(byte[] data, int length) {
 
         if (mBuffer != null) {
+            synchronized (mBuffer) {
+                System.arraycopy(data, 0, mBuffer, writeIndex, length);
 
-            System.arraycopy(data, 0, mBuffer, writeIndex, length);
+                writeIndex += length;
 
-            writeIndex += length;
+                int percent = (writeIndex * 100) / fileSize;
 
+                if (callback != null) {
+                    callback.onPreload(percent);
+                }
+            }
         }
-
     }
 
     public int getWriteIndex() {
@@ -65,6 +71,7 @@ public class BufferMediaDataSource extends MediaDataSource {
         if(position + size > writeIndex) {
 
             if(fileSize == writeIndex) {
+                Log.e("SG2","MediaDataSource loaded data End.");
                 int rest = (int) (writeIndex - position);
 
                 System.arraycopy(mBuffer, (int) position, buffer, offset, rest);
@@ -73,7 +80,7 @@ public class BufferMediaDataSource extends MediaDataSource {
 
             } else {
 
-                Log.e("SG2","loading data is faster than downloading data.");
+                Log.e("SG2","MediaDataSource loading data is faster than downloading data. Waiting...");
                 //loading data is faster than downloading data.
 
 //                if (!bufferFlag) {
@@ -83,17 +90,15 @@ public class BufferMediaDataSource extends MediaDataSource {
 //                }
 //                bufferFlag = true;
 
-//                try {
-//
-//                    Thread.sleep(300);    // wait a second for downloading.
-//
-//                    // or MediaPlayer.pause();
-//
-//                } catch (InterruptedException e) {
-//
-//                    e.printStackTrace();
-//
-//                }
+                while(!isStop) {
+                    if (position + size <= writeIndex) {
+                        break;
+                    }
+
+                    try {
+                        Thread.sleep(200);    // wait a second for downloading.
+                    } catch (InterruptedException e) { }
+                }
 
             }
 
@@ -132,7 +137,7 @@ public class BufferMediaDataSource extends MediaDataSource {
     @Override
 
     public void close() throws IOException {
-
+        isStop = true;
         mBuffer = null;
 
     }

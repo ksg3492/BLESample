@@ -333,6 +333,13 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
                             playerCallback.onBuffering(buffering);
                         }
                     }
+
+                    @Override
+                    public void onPreload(int percent) {
+                        if (playerCallback != null) {
+                            playerCallback.onPreload(percent);
+                        }
+                    }
                 });
                 addByte();
                 Log.e("SG2", Util.Companion.isMainLooper() + "] Mediaplayer onPrepare 요청");

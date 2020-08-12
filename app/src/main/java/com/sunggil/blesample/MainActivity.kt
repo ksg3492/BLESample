@@ -213,7 +213,7 @@ class MainActivity : AppCompatActivity() , PlayerCallback {
                 visibility = View.GONE
             }
 
-            rl_list.visibility = visibility
+            layout_loading.visibility = visibility
             bt_chart.visibility = visibility
             rv_melon.visibility = visibility
         }
@@ -1032,10 +1032,10 @@ class MainActivity : AppCompatActivity() , PlayerCallback {
                         mConnectionThread?.start()
                     }
                     AppConst.COMMON.LOADING_DIALOG_SHOW -> {
-                        rl_loading.visibility = View.VISIBLE
+                        layout_loading.visibility = View.VISIBLE
                     }
                     AppConst.COMMON.LOADING_DIALOG_DISMISS -> {
-                        rl_loading.visibility = View.GONE
+                        layout_loading.visibility = View.GONE
                     }
                 }
             } catch (e : Exception) {
@@ -1104,4 +1104,10 @@ class MainActivity : AppCompatActivity() , PlayerCallback {
     override fun onPaused() {
     }
 
+
+    override fun onPreload(percent: Int) {
+        Handler(Looper.getMainLooper()).post {
+            pb_download.secondaryProgress = percent
+        }
+    }
 }

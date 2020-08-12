@@ -13,6 +13,8 @@ public interface PlayerCallback {
 
     void onError(String errMsg);
 
+    void onPreload(int percent);
+
     void onBuffering(boolean buffering);
 
     void onBufferingEnd(long seek);

@@ -28,6 +28,8 @@ class AppConst {
 
             val LOADING_DIALOG_SHOW                           = 0x0202
             val LOADING_DIALOG_DISMISS                        = 0x0203
+            val DOWNLOAD_PERCENTAGE_UI                        = 0x0204
+            val PRELOAD_PERCENTAGE_UI                         = 0x0205
         }
     }
 

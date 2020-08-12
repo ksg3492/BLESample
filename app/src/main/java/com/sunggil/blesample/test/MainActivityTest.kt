@@ -6,11 +6,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.graphics.Color
 import android.os.*
 import android.util.Log
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.constraintlayout.widget.ConstraintSet
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -40,6 +43,14 @@ import kotlin.collections.ArrayList
 
 
 class MainActivityTest : AppCompatActivity() , PlayerCallback {
+    companion object {
+        const val STATUS_CONNECT = 0
+        const val STATUS_DISCONNECT = 1
+        const val STATUS_BROKEN_PIPE = 2
+
+        const val MIN_PRELOAD_BUFFER = 5 //5%
+    }
+
     var IS_CLIENT = true
 
     var isDestroy = false
@@ -63,6 +74,7 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
     var endPage = 0
 
     //thread
+    var mConnectionStatus = STATUS_DISCONNECT
     var mDataTransferThread : DataTransferThread? = null
     var mConnectionThread : ConnectionThread? = null
 
@@ -78,6 +90,8 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
     lateinit var playerService : ExoPlayerService
     lateinit var playerServiceAudioTrack : ExoPlayerServiceAudioTrack
     lateinit var playerServiceMediaPlayer : ExoPlayerServiceMediaPlayerTest
+
+    var isBrokenPipe = false
 
 
     val serviceConnection = object : ServiceConnection {
@@ -166,6 +180,14 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
 
                 }
 
+                val progressValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI, 0, 0, null)
+                uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI)
+                uiHandler.sendMessage(progressValue)
+
+                val progress2Value = uiHandler.obtainMessage(AppConst.COMMON.PRELOAD_PERCENTAGE_UI, 0, 0, null)
+                uiHandler.removeMessages(AppConst.COMMON.PRELOAD_PERCENTAGE_UI)
+                uiHandler.sendMessage(progress2Value)
+
                 Thread{
                     val melonItem = adapterMelon.listDatas?.get(position)
                     val itemData = Gson().toJson(melonItem)
@@ -214,7 +236,7 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
                 visibility = View.GONE
             }
 
-            rl_list.visibility = visibility
+            layout_list.visibility = visibility
             bt_chart.visibility = visibility
             rv_melon.visibility = visibility
         }
@@ -310,9 +332,20 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
                 }
             }
 
-
             rv_device.visibility = View.VISIBLE
         }
+
+        v_minbuffer.visibility = View.VISIBLE
+
+        val constraintLayout = findViewById(R.id.layout_player) as ConstraintLayout
+        val minView = findViewById(R.id.v_minbuffer) as View
+
+        val cs = ConstraintSet()
+        cs.clone(constraintLayout)
+        cs.setHorizontalBias(minView.id, MIN_PRELOAD_BUFFER * 0.01f)
+        cs.applyTo(constraintLayout);
+
+
     }
 
     fun makeThread() {
@@ -367,8 +400,7 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
                 playerServiceMediaPlayer.setStop()
                 isPrepare = false
             } else if (msg.what == AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_DOWNLOADING ||
-                        msg.what == AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_DONE
-            ) {
+                        msg.what == AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_DONE) {
 
                 if (fileDownloadStop) {
                     return
@@ -399,13 +431,31 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
         override fun handleMessage(msg: Message) {
             super.handleMessage(msg)
 
-            if (mDataTransferThread != null && mDataTransferThread!!.isActive()) {
-                tv_status.text = "CONNECTED..."
+            if (!isBrokenPipe) {
+                if (mDataTransferThread != null && mDataTransferThread!!.isActive()) {
+                    if (mConnectionStatus != STATUS_CONNECT) {
+                        mConnectionStatus = STATUS_CONNECT
+                        tv_status.setTextColor(Color.BLACK)
+                        tv_status.text = "CONNECTED..."
+                    }
+                } else {
+                    if (mConnectionStatus != STATUS_DISCONNECT) {
+                        mConnectionStatus = STATUS_DISCONNECT
+                        tv_status.setTextColor(Color.BLACK)
+                        tv_status.text = "DISCONNECTED..."
+                    }
+                }
+
             } else {
-                tv_status.text = "DISCONNECTED..."
+                if (mConnectionStatus != STATUS_BROKEN_PIPE) {
+                    mConnectionStatus = STATUS_BROKEN_PIPE
+                    tv_status.setTextColor(Color.RED)
+                    tv_status.text = "PIPE BROKEN...RETRY CONNECT SOCKET!!"
+                }
             }
 
-            sendEmptyMessageDelayed(0, 1000)
+
+            sendEmptyMessageDelayed(0, 500)
         }
     }
 
@@ -498,7 +548,7 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
                     return
                 }
 
-                sleep(1000)
+//                sleep(1000)
                 if (mSocket!= null && mSocket!!.isConnected) {
                     statusHandler.removeMessages(0)
                     statusHandler.sendEmptyMessage(0)
@@ -559,8 +609,13 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
         }
 
         fun setSocket(socket : BluetoothSocket?) {
-            mOutputStream = ObjectOutputStream(socket!!.outputStream)
-            mInStream = ObjectInputStream(socket!!.inputStream)
+            try {
+                mOutputStream = ObjectOutputStream(socket!!.outputStream)
+                mInStream = ObjectInputStream(socket!!.inputStream)
+                isBrokenPipe = false
+            } catch (e : Exception) {
+                isBrokenPipe = true
+            }
         }
 
         override fun run() {
@@ -850,11 +905,15 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
                                     mDownloadOutputStream!!.write(dataStr, 0, read)
                                     wrote += read
                                     percent = (wrote * 100L / fileLength).toInt()
-                                    percent5 = percent / 10
+                                    percent5 = percent / MIN_PRELOAD_BUFFER
 
-                                    Log.e("SG2", "${Util.isMainLooper()} ] $count 번째 : ${wrote}byte 다운로드 완료 / total bytes : $fileLength")
+//                                    Log.e("SG2", "${Util.isMainLooper()} ] $count 번째 : ${wrote}byte 다운로드 완료 / total bytes : $fileLength")
                                     if (percent != 100 && prevPercent != percent5) {
                                         prevPercent = percent5
+
+                                        val progressValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI, percent, 0, null)
+                                        uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI)
+                                        uiHandler.sendMessage(progressValue)
 
                                         val filePath = AppConst.RETROFIT.DOWNLOAD_MP3_FOLDER_PATH + fileName
 
@@ -884,6 +943,9 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
 
                             }
 
+                            val progressValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI, 100, 0, null)
+                            uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI)
+                            uiHandler.sendMessage(progressValue)
 
                             val filePath = AppConst.RETROFIT.DOWNLOAD_MP3_FOLDER_PATH + fileName
                             val dataValue = exoPlayerHandlerMediaPlayer.obtainMessage(command, 0, fileLength, filePath)
@@ -976,8 +1038,6 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
                     mOutputStream?.flush()
                     mOutputStream?.reset()
                     mOutputStream?.writeObject(ble)
-
-                    Log.e("SG2","SENT BLEProtocol")
                 } catch (e : IOException) {
                     Log.e("SG2","write error : ", e)
                 }
@@ -1041,14 +1101,26 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
 //                        makeThread()
 //                        mConnectionThread?.start()
 
-                        mDataTransferThread!!.setSocket(mSocket)
-                        mDataTransferThread!!.start()
+                        try {
+                            mDataTransferThread = DataTransferThread()
+                            mDataTransferThread!!.setSocket(mSocket)
+                            mDataTransferThread!!.start()
+                        } catch (e : Exception ) {
+                            isBrokenPipe = true
+                        }
+
                     }
                     AppConst.COMMON.LOADING_DIALOG_SHOW -> {
-                        rl_loading.visibility = View.VISIBLE
+                        layout_loading.visibility = View.VISIBLE
                     }
                     AppConst.COMMON.LOADING_DIALOG_DISMISS -> {
-                        rl_loading.visibility = View.GONE
+                        layout_loading.visibility = View.GONE
+                    }
+                    AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI -> {
+                        pb_download.progress = msg.arg1
+                    }
+                    AppConst.COMMON.PRELOAD_PERCENTAGE_UI -> {
+                        pb_preload.progress = msg.arg1
                     }
                 }
             } catch (e : Exception) {
@@ -1073,10 +1145,6 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
         return dateFormat.format(time)
     }
 
-    override fun onPlayed() {
-
-    }
-
     override fun onPrepared(duration: Int) {
         Handler(Looper.getMainLooper()).post {
             tv_duration.text =
@@ -1089,13 +1157,33 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
         onBuffering(false)
     }
 
+    override fun onPreload(percent: Int) {
+        val progressValue = uiHandler.obtainMessage(AppConst.COMMON.PRELOAD_PERCENTAGE_UI, percent, 0, null)
+        uiHandler.removeMessages(AppConst.COMMON.PRELOAD_PERCENTAGE_UI)
+        uiHandler.sendMessage(progressValue)
+    }
+
+    override fun onPlayed() {
+        Handler(Looper.getMainLooper()).post {
+            bt_playpause.background = getDrawable(R.drawable.exo_icon_pause)
+        }
+    }
+
+    override fun onPaused() {
+        Handler(Looper.getMainLooper()).post {
+            bt_playpause.background = getDrawable(R.drawable.exo_icon_play)
+        }
+    }
+
     override fun onCompletion(duration: Int) {
+        Handler(Looper.getMainLooper()).post {
+            bt_playpause.background = getDrawable(R.drawable.exo_icon_pause)
+        }
     }
 
     override fun onProgress(sec: Int) {
         Handler(Looper.getMainLooper()).post {
-            tv_progress.text =
-                Util.convertMMSS(sec)
+            tv_progress.text = Util.convertMMSS(sec)
         }
     }
 
@@ -1111,9 +1199,6 @@ class MainActivityTest : AppCompatActivity() , PlayerCallback {
     }
 
     override fun onError(errMsg: String?) {
-    }
 
-    override fun onPaused() {
     }
-
 }
