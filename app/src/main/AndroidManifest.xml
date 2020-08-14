@@ -24,18 +24,8 @@
         android:hardwareAccelerated="true"
         android:largeHeap="true"
         >
-<!--        <activity-->
-<!--            android:name=".MainActivity"-->
-<!--            android:screenOrientation="sensorPortrait"-->
-<!--            >-->
-<!--            <intent-filter>-->
-<!--                <action android:name="android.intent.action.MAIN" />-->
-
-<!--                <category android:name="android.intent.category.LAUNCHER" />-->
-<!--            </intent-filter>-->
-<!--        </activity>-->
         <activity
-            android:name=".test.MainActivityTest"
+            android:name=".ui.MainActivity"
             android:screenOrientation="sensorPortrait"
             >
             <intent-filter>
@@ -48,7 +38,6 @@
         <service android:name=".player.service.ExoPlayerService" />
         <service android:name=".player.service.ExoPlayerServiceAudioTrack" />
         <service android:name=".player.service.ExoPlayerServiceMediaPlayer" />
-        <service android:name=".player.service.ExoPlayerServiceMediaPlayerTest" />
     </application>
 
 </manifest>

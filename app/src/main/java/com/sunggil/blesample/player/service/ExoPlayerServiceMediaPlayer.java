@@ -4,12 +4,13 @@ import android.app.Service;
 import android.content.Intent;
 import android.media.MediaPlayer;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.util.Log;
+import android.view.SurfaceHolder;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.google.android.exoplayer2.Player;
@@ -20,7 +21,6 @@ import com.sunggil.blesample.player.PlayerCallback;
 import com.sunggil.blesample.player.PlayerController;
 
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
 
@@ -31,6 +31,10 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
     private PlayerCallback playerCallback;
 
     private PrepareThread mPrepareThread;
+    private Thread mAddbyteThread;
+    private boolean isVideo = false;
+
+    private BufferMediaDataSource mediaDataSource = null;
 
     public class LocalBinder extends Binder {
         public ExoPlayerServiceMediaPlayer getService() {
@@ -72,6 +76,16 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
                 mPrepareThread.interrupt();
             } catch (Exception e) { }
             mPrepareThread = null;
+        }
+    }
+
+    public void setIsVideo(boolean b) {
+        isVideo = b;
+    }
+
+    public void setSurfaceHolder(SurfaceHolder sh) {
+        if (mPrepareThread != null) {
+            mPrepareThread.setSurfaceHolder(sh);
         }
     }
 
@@ -125,6 +139,12 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
 
         }
 
+        addByteHandler.removeMessages(0);
+        if (mAddbyteThread != null) {
+            mAddbyteThread.interrupt();
+            mAddbyteThread = null;
+        }
+
         if (mPrepareThread != null) {
             release();
             mPrepareThread.interrupt();
@@ -141,10 +161,36 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
 
     @Override
     public void addByteData() {
-        if (mPrepareThread != null && mPrepareThread.isPrepared()) {
-            mPrepareThread.addByte();
+        if (mPrepareThread != null && mPrepareThread.isPrepared() && mPrepareThread.isAddbyteDone()) {
+            addByteHandler.removeMessages(0);
+            if (mAddbyteThread != null) {
+                mAddbyteThread.interrupt();
+                mAddbyteThread = null;
+            }
+
+            mAddbyteThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    if (mPrepareThread != null && mPrepareThread.isPrepared()) {
+                        mPrepareThread.addByte();
+                    }
+                }
+            });
+            mAddbyteThread.start();
+        } else {
+            addByteHandler.removeMessages(0);
+            addByteHandler.sendEmptyMessageDelayed(0, 500);
         }
     }
+
+    private Handler addByteHandler = new Handler() {
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            super.handleMessage(msg);
+
+            addByteData();
+        }
+    };
 
     @Override
     public void setPlay() {
@@ -222,7 +268,6 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
 
     class PrepareThread extends Thread {
         private MediaPlayer mediaPlayer = null;
-        private BufferMediaDataSource mediaDataSource = null;
 
         private String mFilePath = "";
         private long mPreparedSize = 0L;
@@ -235,6 +280,8 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
 
         private int fileLength = 0;
         private boolean isPrepared = false;
+        private boolean isAddbyteDone = true;
+        private SurfaceHolder surfaceHolder;
 
         public PrepareThread(String url, int length) {
             mFilePath = url;
@@ -286,12 +333,18 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
             return isPrepared;
         }
 
+        public boolean isAddbyteDone() {
+            return isAddbyteDone;
+        }
+
         public void addByte() {
             if (mediaDataSource == null) {
+                isAddbyteDone = true;
                 return;
             }
 
             try {
+                isAddbyteDone = false;
                 Log.e("SG2",Util.Companion.isMainLooper() + " ] addByte()");
                 byte[] data = readFileToByteArray(new File(mFilePath));
 
@@ -300,6 +353,7 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
                 System.arraycopy(data, index, newByte, 0, data.length - index);
 
                 mediaDataSource.inputData(newByte, newByte.length);
+                isAddbyteDone = true;
             }catch (Exception e) {
                 Log.e("SG2","addByte() Error : " , e);
             }
@@ -318,6 +372,10 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
                 Log.e("SG2","readFileToByteArray Error : " , e);
             }
             return bArray;
+        }
+
+        public void setSurfaceHolder(SurfaceHolder sh) {
+            surfaceHolder = sh;
         }
 
         private void prepareMedia() {
@@ -342,6 +400,11 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
                     }
                 });
                 addByte();
+                if (isVideo) {
+                    mediaPlayer.setDisplay(surfaceHolder);
+                } else {
+                    mediaPlayer.setDisplay(null);
+                }
                 Log.e("SG2", Util.Companion.isMainLooper() + "] Mediaplayer onPrepare 요청");
                 mediaPlayer.setDataSource(mediaDataSource);
 //                mediaPlayer.setDataSource(mFilePath);
@@ -371,6 +434,9 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
         public void setPlay() {
             try {
                 mediaPlayer.start();
+                if (playerCallback != null) {
+                    playerCallback.onPlayed();
+                }
             }catch (Exception e) {
 
             }
@@ -379,6 +445,9 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
         public void setPause() {
             try {
                 mediaPlayer.pause();
+                if (playerCallback != null) {
+                    playerCallback.onPaused();
+                }
             }catch (Exception e) {
 
             }
@@ -401,6 +470,9 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
             if (mediaPlayer != null) {
                 mediaPlayer.stop();
             }
+            if (playerCallback != null) {
+                playerCallback.onPaused();
+            }
         }
 
         private void setRelease() {
@@ -415,6 +487,10 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
                 mediaPlayer.release();
             } catch (Exception e) { }
             mediaPlayer = null;
+
+            if (playerCallback != null) {
+                playerCallback.onPaused();
+            }
         }
     }
 }

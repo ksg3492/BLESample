@@ -2,6 +2,7 @@ package com.sunggil.blesample.network
 
 import com.sunggil.blesample.data.MelonDomain
 import com.sunggil.blesample.data.MelonStreamingItem
+import com.sunggil.blesample.data.YoutubeDomain
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.ResponseBody
@@ -75,5 +76,8 @@ interface RetrofitService {
 
     @GET
     fun downloadFileWithDynamicUrl(@Url fileUrl : String) : Call<ResponseBody>
+
+    @GET("youtube/videos")
+    fun getYoutubeHotList(): Call<YoutubeDomain>
 
 }

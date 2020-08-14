@@ -5,7 +5,7 @@ import android.util.Log
 import com.bumptech.glide.Glide
 import com.sunggil.blesample.data.MelonItem
 
-class ThumbsTransferThread(var context : Context, var array : ArrayList<MelonItem>, var listener : ThumbsListener) : Thread() {
+class ThumbsnailThread(var context : Context, var array : ArrayList<MelonItem>, var listener : ThumbsListener) : Thread() {
     private var isStop = false
 
     override fun run() {

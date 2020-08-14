@@ -1,8 +1,9 @@
 package com.sunggil.blesample
 
+import androidx.annotation.NonNull
 import java.io.Serializable
 
-class BLEProtocol(var command : Int) : Serializable {
+class BLEProtocol(@NonNull val command : Int) : Serializable {
 //    var command : Int = 0
     var arg1 : Int= -1
     var arg2 : Int= -1

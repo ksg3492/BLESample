@@ -23,6 +23,9 @@ class AppConst {
 
     class COMMON {
         companion object {
+            var IS_CLIENT                                     = true
+            val MIN_PRELOAD_BUFFER                            = 5 // 5%
+
             val RESTART_CONNECTION_SERVER                     = 0x0200
             val RESTART_DATATRANSFER_THREAD                   = 0x0201
 
