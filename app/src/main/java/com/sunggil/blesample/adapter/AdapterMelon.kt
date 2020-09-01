@@ -12,13 +12,11 @@ import com.bumptech.glide.Glide
 import com.sunggil.blesample.R
 import com.sunggil.blesample.data.MelonItem
 
-class AdapterMelon : RecyclerView.Adapter<AdapterMelon.ViewHolder> {
-    var onClickListener: OnItemClickCallback
+class AdapterMelon(val onClickListener: OnItemClickCallback) : RecyclerView.Adapter<AdapterMelon.ViewHolder>() {
     var listDatas : ArrayList<MelonItem>? = null
 
-    constructor(listener : OnItemClickCallback) {
+    init {
         listDatas = ArrayList()
-        onClickListener = listener
     }
 
     fun updateDatas(data : ArrayList<MelonItem>?) {
@@ -38,9 +36,11 @@ class AdapterMelon : RecyclerView.Adapter<AdapterMelon.ViewHolder> {
     }
 
     fun updateThumbs(position : Int, data : ByteArray) {
-        listDatas?.get(position)?.albumImgByte = data
+        if (listDatas!!.size > position) {
+            listDatas?.get(position)?.albumImgByte = data
 
-        notifyItemChanged(position)
+            notifyItemChanged(position)
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -66,15 +66,13 @@ class AdapterMelon : RecyclerView.Adapter<AdapterMelon.ViewHolder> {
         }
     }
 
-    inner class ViewHolder : RecyclerView.ViewHolder, View.OnClickListener {
+    inner class ViewHolder(v: View, var listener: OnItemClickCallback) : RecyclerView.ViewHolder(v), View.OnClickListener {
         var tvTitle : TextView
         var ivThumb : ImageView
-        var listener : OnItemClickCallback
 
-        constructor(v : View, listener : OnItemClickCallback) : super(v) {
+        init {
             tvTitle = v.findViewById(R.id.tv_title)
             ivThumb = v.findViewById(R.id.iv_thumb)
-            this.listener = listener;
             v.setOnClickListener(this)
         }
 

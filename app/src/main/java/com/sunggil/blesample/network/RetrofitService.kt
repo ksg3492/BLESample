@@ -10,16 +10,13 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Call
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.GET
-import retrofit2.http.POST
-import retrofit2.http.Url
+import retrofit2.http.*
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 interface RetrofitService {
     companion object {
-        val TIME_OUT_MILLISECONDS = 10 * 1000L    //10초
+        val TIME_OUT_MILLISECONDS = 60 * 1000L    //10초
         val logging = HttpLoggingInterceptor()
         val client = OkHttpClient()
             .newBuilder()
@@ -74,6 +71,7 @@ interface RetrofitService {
     @POST("melon/streaming")
     fun getMelonStreaming(@Body params : Map<String, String>) : Call<MelonStreamingItem>
 
+    @Streaming
     @GET
     fun downloadFileWithDynamicUrl(@Url fileUrl : String) : Call<ResponseBody>
 

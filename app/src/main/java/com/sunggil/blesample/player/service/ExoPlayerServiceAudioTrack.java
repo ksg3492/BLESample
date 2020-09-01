@@ -249,6 +249,11 @@ public class ExoPlayerServiceAudioTrack extends Service implements PlayerControl
     }
 
     @Override
+    public void setIsVideo(boolean isVideo) {
+
+    }
+
+    @Override
     public void release() {
         try {
             typeSeekTo = TYPE_SEEK_TO_NONE;

@@ -2,10 +2,7 @@ package com.sunggil.blesample.ui
 
 import android.Manifest
 import android.bluetooth.*
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.content.ServiceConnection
+import android.content.*
 import android.graphics.Color
 import android.os.*
 import android.util.Log
@@ -26,6 +23,7 @@ import com.sunggil.blesample.adapter.AdapterYoutube
 import com.sunggil.blesample.adapter.OnItemClickCallback
 import com.sunggil.blesample.base.BaseActivity
 import com.sunggil.blesample.data.MelonItem
+import com.sunggil.blesample.data.YoutubeItem
 import com.sunggil.blesample.databinding.ActivityMainBinding
 import com.sunggil.blesample.player.service.*
 import com.sunggil.blesample.viewmodel.MainViewModel
@@ -33,10 +31,10 @@ import kotlinx.android.synthetic.main.activity_main.*
 import kotlin.collections.ArrayList
 
 
-class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , SurfaceHolder.Callback {
+class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
     lateinit var tv_status : TextView
     lateinit var tv_logcat : TextView
-    lateinit var rv_melon : RecyclerView
+    lateinit var rv_list : RecyclerView
     lateinit var rv_device : RecyclerView
     lateinit var surfaceHolder : SurfaceHolder
 
@@ -63,6 +61,7 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
                 val binder = service as ExoPlayerServiceMediaPlayer.LocalBinder
                 playerServiceMediaPlayer = binder.service
                 getViewModel().setPlayerService(playerServiceMediaPlayer)
+                playerServiceMediaPlayer.setSurfaceHolder(surfaceHolder)
                 mBound = true
             }
         }
@@ -70,6 +69,19 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
         override fun onServiceDisconnected(name: ComponentName?) {
             mBound = false
         }
+    }
+
+    val receiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.getAction()
+            if(BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+                val device = intent?.getStringExtra(BluetoothDevice.EXTRA_DEVICE)
+                val name = intent?.getStringExtra(BluetoothDevice.EXTRA_NAME)
+                val rssi = intent?.getShortExtra(BluetoothDevice.EXTRA_RSSI ,Short.MIN_VALUE)
+                Log.e("SG2","BluetoothDevice.ACTION_FOUND DEVICE : $device , NAME : $name , RSSI : ${rssi} dBm")
+            }
+        }
+
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,7 +119,7 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
                     return
                 }
 
-                getViewModel().onMelonItemClick(adapterMelon.listDatas?.get(position))
+                getViewModel().onYoutubeItemClick(adapterYoutube.listDatas?.get(position))
             }
         })
         adapterBluetooth = AdapterBluetooth(object : OnItemClickCallback {
@@ -120,9 +132,8 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
 
         tv_status = findViewById<TextView>(R.id.tv_status)
         tv_logcat = findViewById<TextView>(R.id.tv_logcat)
-        rv_melon = findViewById<RecyclerView>(R.id.rv_melon)
-        rv_melon.layoutManager = LinearLayoutManager(baseContext)
-        rv_melon.adapter = adapterMelon
+        rv_list = findViewById<RecyclerView>(R.id.rv_list)
+        rv_list.layoutManager = LinearLayoutManager(baseContext)
 
         rv_device = findViewById<RecyclerView>(R.id.rv_device)
         rv_device.layoutManager = LinearLayoutManager(baseContext)
@@ -145,7 +156,8 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
 
             layout_list.visibility = visibility
             bt_melon_chart.visibility = visibility
-            rv_melon.visibility = visibility
+            bt_youtube_chart.visibility = visibility
+            rv_list.visibility = visibility
         }
 
         bt_playpause.setOnClickListener {
@@ -162,18 +174,33 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
             getViewModel().getMelonChart()
         }
 
+        bt_youtube_chart.setOnClickListener {
+            getViewModel().getYoutubeChart()
+        }
+
         bt_next.setOnClickListener {
-            if (getViewModel().getMelonPage(true)) {
-                adapterMelon.updateDatas(ArrayList())
+            if (rv_list.adapter == adapterMelon) {
+                if (getViewModel().getMelonPage(true)) {
+                    adapterMelon.updateDatas(ArrayList())
+                }
+            } else if (rv_list.adapter == adapterYoutube) {
+                if (getViewModel().getYoutubePage(true)) {
+                    adapterYoutube.updateDatas(ArrayList())
+                }
             }
         }
         bt_prev.setOnClickListener {
-            if (getViewModel().getMelonPage(false)) {
-                adapterMelon.updateDatas(ArrayList())
+            if (rv_list.adapter == adapterMelon) {
+                if (getViewModel().getMelonPage(false)) {
+                    adapterMelon.updateDatas(ArrayList())
+                }
+            } else if (rv_list.adapter == adapterYoutube) {
+                if (getViewModel().getYoutubePage(false)) {
+                    adapterYoutube.updateDatas(ArrayList())
+                }
             }
         }
 
-        val bt_scan = findViewById<Button>(R.id.bt_scan)
         bt_scan.setOnClickListener {
             tv_status.text = "WAITING..."
 
@@ -194,18 +221,51 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
             rv_device.visibility = View.VISIBLE
         }
 
+        bt_video_close.setOnClickListener({
+            layout_surface.visibility = View.GONE
+//            playerServiceMediaPlayer.setPause()
+            playerServiceMediaPlayer.setStop()
+            playerServiceMediaPlayer.release()
+            pb_progress.progress = 0
+            pb_progress.max = 100
+            tv_progress.text = Util.convertMMSS(0)
+            tv_duration.text = Util.convertMMSS(0)
+
+            getViewModel().stopDownload()
+            getViewModel().stopUpload()
+        })
+
+        tv_status.setOnClickListener({
+            getViewModel().retryConnect()
+        })
+        tv_downsize.text = "${AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE / 1024} kByte"
+        bt_up.setOnClickListener {
+            AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE = AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE * 2
+            tv_downsize.text = "${AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE / 1024} kByte"
+            Toast.makeText(baseContext, "${tv_downsize.text}!", Toast.LENGTH_LONG).show()
+        }
+        bt_down.setOnClickListener {
+            AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE = AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE / 2
+            tv_downsize.text = "${AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE / 1024} kByte"
+            Toast.makeText(baseContext, "${tv_downsize.text}!", Toast.LENGTH_LONG).show()
+        }
+
+
         v_minbuffer.visibility = View.VISIBLE
 
-        val constraintLayout = findViewById(R.id.layout_player) as ConstraintLayout
-        val minView = findViewById(R.id.v_minbuffer) as View
-
-        val cs = ConstraintSet()
-        cs.clone(constraintLayout)
-        cs.setHorizontalBias(minView.id, AppConst.COMMON.MIN_PRELOAD_BUFFER * 0.01f)
-        cs.applyTo(constraintLayout);
+//        val constraintLayout = findViewById(R.id.layout_player) as ConstraintLayout
+//        val minView = findViewById(R.id.v_minbuffer) as View
+//
+//        val cs = ConstraintSet()
+//        cs.clone(constraintLayout)
+//        cs.setHorizontalBias(minView.id, AppConst.COMMON.MIN_PRELOAD_BUFFER_PERCENT * 0.01f)
+//        cs.applyTo(constraintLayout);
 
         surfaceHolder = surfaceView.holder
-        surfaceHolder.addCallback(this)
+
+        if (AppConst.COMMON.IS_CLIENT) {
+            registerReceiver(receiver, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
+        }
     }
 
     override fun bindingLiveData() {
@@ -215,22 +275,48 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
         val logMsgObserver = Observer<String> { tv_logcat.text = it }
         val statusMsgObserver = Observer<String> {
             when(it) {
-                "PIPE BROKEN...RETRY CONNECT SOCKET!!" -> tv_status.setTextColor(Color.RED)
+                "PIPE BROKEN...RETRY CONNECT SOCKET!!" -> {
+                    tv_status.setTextColor(Color.RED)
+                    tv_status.isClickable = true
+                }
                 "DISCONNECTED...",
-                "CONNECTED..." -> tv_status.setTextColor(Color.BLACK)
+                "CONNECTED..." -> {
+                    tv_status.setTextColor(Color.BLACK)
+                    tv_status.isClickable = false
+                }
 
             }
             tv_status.text = it
         }
-        val progressObserver = Observer<String> { tv_progress.text = it }
-        val durationObserver = Observer<String> { tv_progress.text = it }
+        val progressObserver = Observer<Int> {
+            pb_progress.progress = it
+            tv_progress.text = Util.convertMMSS(it)
+        }
+        val durationObserver = Observer<Int> {
+            pb_progress.max = it
+            tv_duration.text = Util.convertMMSS(it)
+        }
         val playpauseObserver = Observer<Int> { bt_playpause.background = getDrawable(it) }
         val pageObserver = Observer<String> { tv_page.text = it }
         val loadingObserver = Observer<Int> { layout_loading.visibility = it }
         val downloadObserver = Observer<Int> { pb_download.progress = it }
         val preloadObserver = Observer<Int> { pb_preload.progress = it }
-        val melonListObserver = Observer<ArrayList<MelonItem>> { adapterMelon.updateDatas(it) }
-        val thumbListObserver = Observer<HashMap<Int, ByteArray>> { adapterMelon.updateThumbs(it.keys.first(), it.values.first()) }
+        val downloadedSizeObserver = Observer<Int> { tv_downloaded.text = "${it} Bytes" }
+        val downloadedSpeedObserver = Observer<Float> { tv_downloaded_speed.text = "${it * 1.00f} kBytes/s" }
+        val melonListObserver = Observer<ArrayList<MelonItem>> {
+            rv_list.adapter = adapterMelon
+            adapterMelon.updateDatas(it)
+        }
+        val melonThumbsObserver = Observer<HashMap<Int, ByteArray>> { adapterMelon.updateThumbs(it.keys.first(), it.values.first()) }
+        val youtubeListObserver = Observer<ArrayList<YoutubeItem>> {
+            rv_list.adapter = adapterYoutube
+            adapterYoutube.updateDatas(it)
+        }
+        val youtubeThumbsObserver = Observer<HashMap<Int, ByteArray>> { adapterYoutube.updateThumbs(it.keys.first(), it.values.first()) }
+        val surfaceVisibilityObserver = Observer<Int> {
+            layout_loading.visibility = View.GONE
+            layout_surface.visibility = it
+        }
 
 
         getViewModel().toastMsg.observe(this, toastMsgObserver)
@@ -243,8 +329,13 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
         getViewModel().loadingValue.observe(this, loadingObserver)
         getViewModel().downloadValue.observe(this, downloadObserver)
         getViewModel().preloadValue.observe(this, preloadObserver)
+        getViewModel().downloadedSizeValue.observe(this, downloadedSizeObserver)
+        getViewModel().downloadedSpeedValue.observe(this, downloadedSpeedObserver)
         getViewModel().melonListValue.observe(this, melonListObserver)
-        getViewModel().thumbListValue.observe(this, thumbListObserver)
+        getViewModel().melonThumbsValue.observe(this, melonThumbsObserver)
+        getViewModel().youtubeListValue.observe(this, youtubeListObserver)
+        getViewModel().youtubeThumbsValue.observe(this, youtubeThumbsObserver)
+        getViewModel().surfaceVisibility.observe(this, surfaceVisibilityObserver)
     }
 
     private fun init() {
@@ -260,8 +351,6 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
 
     override fun onDestroy() {
         super.onDestroy()
-
-        surfaceHolder.removeCallback(this)
 
         try {
             if (mBound) {
@@ -283,15 +372,12 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() , Surfac
         }
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder?, format: Int, width: Int, height: Int) {
-        Log.e("SG2","surfaceChanged")
-    }
-
-    override fun surfaceDestroyed(holder: SurfaceHolder?) {
-        Log.e("SG2","surfaceDestroyed")
-    }
-
-    override fun surfaceCreated(holder: SurfaceHolder?) {
-        Log.e("SG2","surfaceCreated")
+    override fun onBackPressed() {
+        if (layout_loading.visibility == View.VISIBLE) {
+            layout_loading.visibility = View.GONE
+        } else {
+            super.onBackPressed()
+            finish()
+        }
     }
 }

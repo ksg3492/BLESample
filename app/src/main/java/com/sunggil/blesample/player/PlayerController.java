@@ -25,6 +25,8 @@ public interface PlayerController {
 
     void setPlayPauseUI(boolean isPlay);
 
+    void setIsVideo(boolean isVideo);
+
     void release();
 
     void setVolume(float volume);

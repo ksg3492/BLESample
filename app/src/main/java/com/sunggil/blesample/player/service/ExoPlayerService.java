@@ -492,6 +492,11 @@ public class ExoPlayerService extends Service implements PlayerController {
     }
 
     @Override
+    public void setIsVideo(boolean isVideo) {
+
+    }
+
+    @Override
     public void release() {
         try {
             typeSeekTo = TYPE_SEEK_TO_NONE;

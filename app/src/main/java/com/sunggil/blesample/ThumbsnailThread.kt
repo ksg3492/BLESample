@@ -3,9 +3,8 @@ package com.sunggil.blesample
 import android.content.Context
 import android.util.Log
 import com.bumptech.glide.Glide
-import com.sunggil.blesample.data.MelonItem
 
-class ThumbsnailThread(var context : Context, var array : ArrayList<MelonItem>, var listener : ThumbsListener) : Thread() {
+class ThumbsnailThread(var context : Context, var array : ArrayList<String>, var listener : ThumbsListener) : Thread() {
     private var isStop = false
 
     override fun run() {
@@ -20,7 +19,7 @@ class ThumbsnailThread(var context : Context, var array : ArrayList<MelonItem>, 
             val bytes = Glide.with(context)
                 .`as`(ByteArray::class.java)
                 .override(100)
-                .load(array.get(i).albumImg)
+                .load(array.get(i))
                 .submit()
                 .get();
 

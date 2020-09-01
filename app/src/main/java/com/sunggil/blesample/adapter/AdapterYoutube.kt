@@ -10,18 +10,16 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.sunggil.blesample.R
-import com.sunggil.blesample.data.MelonItem
+import com.sunggil.blesample.data.YoutubeItem
 
-class AdapterYoutube : RecyclerView.Adapter<AdapterYoutube.ViewHolder> {
-    var onClickListener: OnItemClickCallback
-    var listDatas : ArrayList<MelonItem>? = null
+class AdapterYoutube(val onClickListener : OnItemClickCallback) : RecyclerView.Adapter<AdapterYoutube.ViewHolder>() {
+    var listDatas : ArrayList<YoutubeItem>? = null
 
-    constructor(listener : OnItemClickCallback) {
+    init {
         listDatas = ArrayList()
-        onClickListener = listener
     }
 
-    fun updateDatas(data : ArrayList<MelonItem>?) {
+    fun updateDatas(data : ArrayList<YoutubeItem>?) {
         if (listDatas == null) {
             listDatas = ArrayList()
         } else {
@@ -38,9 +36,11 @@ class AdapterYoutube : RecyclerView.Adapter<AdapterYoutube.ViewHolder> {
     }
 
     fun updateThumbs(position : Int, data : ByteArray) {
-        listDatas?.get(position)?.albumImgByte = data
+        if (listDatas!!.size > position) {
+            listDatas!!.get(position)?.thumbnailByte = data
 
-        notifyItemChanged(position)
+            notifyItemChanged(position)
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -57,24 +57,22 @@ class AdapterYoutube : RecyclerView.Adapter<AdapterYoutube.ViewHolder> {
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.tvTitle.text = listDatas?.get(position)?.songName
+        holder.tvTitle.text = listDatas?.get(position)?.title
 
-        if (listDatas?.get(position)?.albumImgByte != null) {
-            Glide.with(holder.itemView.context).asDrawable().placeholder(ColorDrawable(Color.GRAY)).error(ColorDrawable(Color.RED)).override(53).load(listDatas?.get(position)?.albumImgByte).into(holder.ivThumb)
+        if (listDatas?.get(position)?.thumbnailByte != null) {
+            Glide.with(holder.itemView.context).asDrawable().placeholder(ColorDrawable(Color.GRAY)).error(ColorDrawable(Color.RED)).override(53).load(listDatas?.get(position)?.thumbnailByte).into(holder.ivThumb)
         } else {
             Glide.with(holder.itemView.context).asDrawable().placeholder(ColorDrawable(Color.GRAY)).error(ColorDrawable(Color.RED)).override(53).load(ColorDrawable(Color.GRAY)).into(holder.ivThumb)
         }
     }
 
-    inner class ViewHolder : RecyclerView.ViewHolder, View.OnClickListener {
+    inner class ViewHolder(v: View, var listener: OnItemClickCallback) : RecyclerView.ViewHolder(v), View.OnClickListener {
         var tvTitle : TextView
         var ivThumb : ImageView
-        var listener : OnItemClickCallback
 
-        constructor(v : View, listener : OnItemClickCallback) : super(v) {
+        init {
             tvTitle = v.findViewById(R.id.tv_title)
             ivThumb = v.findViewById(R.id.iv_thumb)
-            this.listener = listener;
             v.setOnClickListener(this)
         }
 

@@ -8,8 +8,10 @@ import android.bluetooth.BluetoothSocket
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
+import androidx.annotation.NonNull
 import androidx.lifecycle.MutableLiveData
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -30,6 +32,7 @@ import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.io.*
+import java.net.SocketTimeoutException
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -39,15 +42,20 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
     val toastMsg : MutableLiveData<String> = MutableLiveData()
     val logMsg : MutableLiveData<String> = MutableLiveData()
     val statusMsg : MutableLiveData<String> = MutableLiveData()
-    val progressValue : MutableLiveData<String> = MutableLiveData()
-    val durationValue : MutableLiveData<String> = MutableLiveData()
+    val progressValue : MutableLiveData<Int> = MutableLiveData()
+    val durationValue : MutableLiveData<Int> = MutableLiveData()
     val playpauseValue : MutableLiveData<Int> = MutableLiveData()
     val pageValue : MutableLiveData<String> = MutableLiveData()
     val loadingValue : MutableLiveData<Int> = MutableLiveData()
     val downloadValue : MutableLiveData<Int> = MutableLiveData()
     val preloadValue : MutableLiveData<Int> = MutableLiveData()
+    val downloadedSizeValue : MutableLiveData<Int> = MutableLiveData()
+    val downloadedSpeedValue : MutableLiveData<Float> = MutableLiveData()
     val melonListValue : MutableLiveData<ArrayList<MelonItem>> = MutableLiveData()
-    val thumbListValue : MutableLiveData<HashMap<Int, ByteArray>> = MutableLiveData()
+    val melonThumbsValue : MutableLiveData<HashMap<Int, ByteArray>> = MutableLiveData()
+    val youtubeListValue : MutableLiveData<ArrayList<YoutubeItem>> = MutableLiveData()
+    val youtubeThumbsValue : MutableLiveData<HashMap<Int, ByteArray>> = MutableLiveData()
+    val surfaceVisibility : MutableLiveData<Int> = MutableLiveData()
 
     companion object {
         const val STATUS_CONNECT = 0
@@ -59,6 +67,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
     lateinit var playerController : PlayerController
 
     //thread
+    var mSelectedDevice : BluetoothDevice? = null
     var isBrokenPipe = false
     var mConnectionStatus = STATUS_DISCONNECT
     var mDataTransferThread : DataTransferThread? = null
@@ -80,6 +89,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
     var endPage = 0
 
     var melonChartData = ArrayList<MelonItem>()
+    var youtubeHotData = ArrayList<YoutubeItem>()
 
     fun setPlayerService(controller : PlayerController) {
         playerController = controller
@@ -90,14 +100,10 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         uiHandler.sendEmptyMessage(AppConst.COMMON.LOADING_DIALOG_SHOW)
         prepareLogcat = System.currentTimeMillis()
 
-        playerController.setPause()
+//        playerController.setPause()
         playerController.setStop()
 
-        try {
-            fileDownloadStop = true
-
-            mDataTransferThread?.setDownloadStop()
-        } catch (e: Exception) { }
+        stopDownload()
 
         val progressValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI, 0, 0, null)
         uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI)
@@ -122,14 +128,10 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         uiHandler.sendEmptyMessage(AppConst.COMMON.LOADING_DIALOG_SHOW)
         prepareLogcat = System.currentTimeMillis()
 
-        playerController.setPause()
+//        playerController.setPause()
         playerController.setStop()
 
-        try {
-            fileDownloadStop = true
-
-            mDataTransferThread?.setDownloadStop()
-        } catch (e: Exception) { }
+        stopDownload()
 
         val progressValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI, 0, 0, null)
         uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI)
@@ -142,7 +144,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         Thread{
             val itemData = Gson().toJson(item)
 
-            val ble = BLEProtocol(AppConst.CLIENT_TO_SERVER.GET_MELON_STREAMING).apply {
+            val ble = BLEProtocol(AppConst.CLIENT_TO_SERVER.GET_YOUTUBE_STREAMING).apply {
                 content = itemData.toByteArray()
             }
 
@@ -150,16 +152,47 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         }.start()
     }
 
-    fun onBluetoothItemClick(device : BluetoothDevice) {
+    fun stopDownload() {
+        try {
+            fileDownloadStop = true
+
+            mDataTransferThread?.setDownloadStop()
+        } catch (e: Exception) { }
+    }
+
+    fun stopUpload() {
+        val ble = BLEProtocol(AppConst.CLIENT_TO_SERVER.STOP_UPLOAD_STREAMING).apply {
+            arg1 = 0
+        }
+
+        mDataTransferThread?.write(ble)
+    }
+
+    fun onBluetoothItemClick(device : BluetoothDevice?) {
+        mSelectedDevice = device
         makeThread()
         mConnectionThread?.setDevice(device)
         mConnectionThread?.start()
+    }
+
+    fun retryConnect() {
+        onBluetoothItemClick(mSelectedDevice)
     }
 
     fun getMelonChart() {
         logcat = System.currentTimeMillis()
 
         val ble = BLEProtocol(AppConst.CLIENT_TO_SERVER.GET_MELON_CHART_LIST).apply {
+            arg1 = 0
+        }
+
+        mDataTransferThread?.write(ble)
+    }
+
+    fun getYoutubeChart() {
+        logcat = System.currentTimeMillis()
+
+        val ble = BLEProtocol(AppConst.CLIENT_TO_SERVER.GET_YOUTUBE_CHART_LIST).apply {
             arg1 = 0
         }
 
@@ -190,12 +223,36 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         return true
     }
 
+    fun getYoutubePage(next : Boolean) : Boolean {
+        val operate = if(next) 1 else -1
+        if (next) {
+            if (startPage + 1 > endPage) {
+                toastMsg.value = "마지막 페이지"
+                return false
+            }
+        } else {
+            if (startPage - 1 < 0) {
+                toastMsg.value = "첫 페이지"
+                return false
+            }
+        }
+
+        logcat = System.currentTimeMillis()
+
+        val ble = BLEProtocol(AppConst.CLIENT_TO_SERVER.GET_YOUTUBE_CHART_LIST).apply {
+            arg1 = startPage + operate
+        }
+        mDataTransferThread?.write(ble)
+
+        return true
+    }
+
     fun makeThread() {
         mDataTransferThread = DataTransferThread()
         mConnectionThread = ConnectionThread()
     }
 
-    fun startStreaming(item : MelonItem?, callback : StreamingCallback) {
+    fun startMelonStreaming(item : MelonItem?, callback : StreamingCallback) {
         if (item == null)
             return
 
@@ -263,40 +320,28 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
 
 
     lateinit var streamTask : StreamTask
-    fun startYoutube(item : YoutubeItem) {
+    fun startYoutubeStreaming(item : YoutubeItem, listener : StreamListener) {
         val urlPath = "https://www.youtube.com/watch?v=${item.id}"
 
-        if (item.url == null || "".equals(item.url)) {
-            return;
+        if ("".equals(item.url)) {
+            return
         }
 
-        streamTask = StreamTask(urlPath, object :
-            StreamListener {
-            override fun onResult(result: Boolean, isLive: Boolean, streams: List<VideoStream>?, liveUrl: String) {
-                try {
-                    if (result) {
-
-                    } else {
-
-                    }
-                } catch (e : Exception) {
-
-                }
-            }
-        })
+        streamTask = StreamTask(urlPath, listener)
+        streamTask.start()
     }
 
 
     var writeThread : WriteResponseBodyToDisk? = null
-    fun stopDownload() {
-        if (writeThread != null) {
-            writeThread!!.setStop()
-            writeThread = null
-        }
+    var sendThread : PassToClientData? = null
+    fun stopWrite() {
+        writeThread?.setStop()
+        writeThread = null
+        sendThread?.setStop()
+        sendThread = null
     }
 
-    fun downloadStreamingFile(fileName : String, url : String, callback : DownloadCallback) {
-        Log.e("SG2","downloadStreamingFile is Main Looper? ${Looper.myLooper() == Looper.getMainLooper()}")
+    fun downloadStreamingFile(fileName : String, url : String, @NonNull callback : DownloadCallback) {
         if (url == null || url.equals(""))
             return
 
@@ -304,8 +349,13 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         call.enqueue(object : Callback<ResponseBody> {
             override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
                 if (response.isSuccessful && response.body() != null) {
-                    writeThread = WriteResponseBodyToDisk(fileName, response.body()!!, callback)
-                    writeThread!!.start()
+                    makeFile(fileName)
+
+                    writeThread = WriteResponseBodyToDisk(fileName, response.body()!!)
+                    writeThread?.start()
+
+                    sendThread = PassToClientData(fileName, response.body()!!.contentLength(), callback)
+                    sendThread?.start()
                 } else {
                     callback.onResult(false, "", 0)
                 }
@@ -316,6 +366,30 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
             }
 
         })
+    }
+
+    fun makeFile(fileName : String) {
+        val folderpath = AppConst.RETROFIT.DOWNLOAD_SERVER_FOLDER_PATH
+        val folderFile = File(folderpath);
+
+        if (!folderFile.exists()) {
+            try {
+                folderFile.mkdirs();
+            } catch (e : Exception) {
+                Log.e(TAG,"mkdirs() Error : ", e);
+            }
+        }
+
+        val filepath = folderpath + fileName;
+        val mp3File = File(filepath);
+
+        if (!mp3File.exists()) {
+            try {
+                mp3File.createNewFile();
+            } catch (e : IOException) {
+                Log.e(TAG,"createNewFile() Error : ", e);
+            }
+        }
     }
 
     fun getCookie() : String {
@@ -331,87 +405,118 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         return cookie
     }
 
-    inner class WriteResponseBodyToDisk(var fileName : String, var body : ResponseBody, var callback : DownloadCallback?) : Thread() {
+    inner class WriteResponseBodyToDisk(var fileName : String, var body : ResponseBody) : Thread() {
         var isStop = false
 
-        var inputStream : InputStream? = null
-        var outputStream : FileOutputStream? = null
+        var downloadIS : InputStream? = null
 
         var fileLength : Long = 0L
 
         override fun run() {
             super.run()
 
-            Log.e("SG2","writeResponseBodyToDisk is Main Looper? ${Looper.myLooper() == Looper.getMainLooper()}")
             try {
-                val folderpath =
-                    AppConst.RETROFIT.DOWNLOAD_MP3_FOLDER_PATH
-                val folderFile = File(folderpath);
-
-                if (!folderFile.exists()) {
-                    try {
-                        folderFile.mkdirs();
-                    } catch (e : Exception) {
-                        Log.e(TAG,"mkdirs() Error : ", e);
-                    }
-                }
-
-                val filepath = folderpath + fileName;
-                val mp3File = File(filepath);
-
-                if (!mp3File.exists()) {
-                    try {
-                        mp3File.createNewFile();
-                    } catch (e : IOException) {
-                        Log.e(TAG,"createNewFile() Error : ", e);
-                    }
-                }
+                val filePath = AppConst.RETROFIT.DOWNLOAD_SERVER_FOLDER_PATH + fileName
+                val file = File(filePath);
 
                 try {
-                    try {
-                        outputStream = FileOutputStream(mp3File);
-                    } catch (e : FileNotFoundException) {
-                        Log.e(TAG,"FileNotFoundException : ", e)
-                    }
-
-                    var sumLength = 0L;
                     fileLength = body.contentLength()
 
                     Log.e("SG2","filelength : " + fileLength);
-                    inputStream = BufferedInputStream(body?.byteStream())
-                    val bufferSize = (fileLength / 9).toInt()      //11%씩?
-//                    val bufferSizeAdd = 1024 * 16
+                    downloadIS = BufferedInputStream(body?.byteStream())
+                    val outputStream = file.outputStream()
 
-                    val fileReader = ByteArray(bufferSize)
-                    var count = 0
+                    val fileReader = ByteArray(32 * 1024)
                     isStop = false
+
                     while (!isStop) {
-                        if (outputStream != null && inputStream != null) {
-                            val read = inputStream!!.read(fileReader);
+                        if (downloadIS != null) {
+                            val read = downloadIS!!.read(fileReader);
 
                             if (read == -1 || isStop) {
-                                break;
+                                break
                             }
-//                            outputStream!!.write(fileReader, 0, read);
-                            callback?.onUpdate(fileReader, read, fileLength);
-                            count++
-                            sumLength += read;
+                            outputStream.write(fileReader, 0, read)
                         }
                     }
+                    outputStream.flush()
+                    outputStream.close()
 
-                    outputStream?.flush();
-
+                    downloadIS?.close()
+                    downloadIS = null
 
                     Log.e(TAG,"writeToDisk()");
                 } catch (e : Exception) {
                     Log.e(TAG,"writeToDisk Error : ", e);
                 } finally {
-                    inputStream?.close()
-                    outputStream?.close()
-                    inputStream = null
-                    outputStream = null
                 }
             } catch (e : Exception) {
+            }
+        }
+
+        fun setStop() {
+            isStop = true
+
+            try {
+                interrupt()
+            }catch (e : Exception) {}
+        }
+    }
+
+    inner class PassToClientData(var fileName : String, var fileLength : Long, var callback : DownloadCallback) : Thread() {
+        var isStop = false
+
+        var downloadedIS : InputStream? = null
+
+        override fun run() {
+            super.run()
+
+            try {
+                val filePath = AppConst.RETROFIT.DOWNLOAD_SERVER_FOLDER_PATH + fileName
+                val file = File(filePath);
+
+                downloadedIS = BufferedInputStream(file.inputStream())
+                val bufferSize = AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE
+                val fileReader = ByteArray(bufferSize)
+
+                var sended = 0
+                while (!isStop) {
+                    if (downloadedIS != null) {
+                        val downloadedSize = file.length()
+                        Log.e("SG2","PassToClientData downloadedSize : $downloadedSize")
+
+                        if (downloadedSize != fileLength) {
+                            if ((sended + bufferSize) > downloadedSize) {
+                                Log.e("SG2","Client Send 대기...")
+                                sleep(100)
+                                continue
+                            }
+                        }
+
+                        val read = downloadedIS!!.read(fileReader);
+
+                        if (read == -1 || isStop) {
+                            Log.e(TAG,"break read : $read, isStop : $isStop, ");
+                            break
+                        }
+
+                        if (!callback.onUpdate(fileReader, read, fileLength)) {
+                            Log.e(TAG,"onUpdate false");
+                            break
+                        }
+
+                        sended += read
+                    }
+                }
+                Log.e(TAG,"passToClient out isStop : $isStop, ");
+
+                downloadedIS?.close()
+                downloadedIS = null
+
+                Log.e(TAG,"passToClient()");
+            } catch (e : Exception) {
+
+                Log.e("SG2","passToClient Error : ${e.message}");
             }
 
             callback?.onResult(!isStop, fileName, fileLength)
@@ -419,12 +524,10 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
 
         fun setStop() {
             isStop = true
-            try {
-                inputStream?.close()
-                outputStream?.close()
-            }catch (e : Exception) {}
 
-            interrupt()
+            try {
+                interrupt()
+            }catch (e : Exception) {}
         }
     }
 
@@ -442,6 +545,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
             var isLive = false
 
             try {
+                Log.e("SG2","유튜브 파싱시작")
                 NewPipe.init(DownloaderNewPipe.init(null), Localization("KR", "ko"))
 
                 val infos = StreamInfo.getInfo(url)
@@ -456,7 +560,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                     list = infos.getVideoStreams();
                 }
             } catch (e : Exception) {
-                Log.e("SG2","유튜브 파싱실패")
+                Log.e("SG2","유튜브 파싱실패 : ", e)
             }
 
             if (list != null && list!!.size > 0) {
@@ -485,7 +589,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
             priority = MAX_PRIORITY
         }
 
-        fun setDevice(d : BluetoothDevice) {
+        fun setDevice(d : BluetoothDevice?) {
             mDevice = d
         }
 
@@ -494,24 +598,38 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
             val uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
             if (AppConst.COMMON.IS_CLIENT) {
-                mSocket = mDevice?.createInsecureRfcommSocketToServiceRecord(uuid)
+                initSocket()
+                try {
+                    mSocket = mDevice?.createInsecureRfcommSocketToServiceRecord(uuid)
+
+//                    var socket = mDevice?.createInsecureRfcommSocketToServiceRecord(uuid)
+//                    var clazz = socket?.remoteDevice?.javaClass
+//                    var paramTypes = arrayOf<Class<*>>(Integer.TYPE)
+//                    var m = clazz?.getMethod("createRfcommSocket", *paramTypes)
+//                    mSocket = m?.invoke(socket?.remoteDevice, Integer.valueOf(1)) as BluetoothSocket
+                }catch (e : Exception) {
+                    Log.e("SG2", "Bluetooth create socket error : ${e.message}")
+                }
 
                 mBluetoothAdapter.cancelDiscovery()
 
                 try {
                     mSocket?.connect()
+
                     Log.e("SG2", "Bluetooth socket connect success")
                 }catch (e : Exception) {
                     Log.e("SG2", "Bluetooth socket connect fail : " , e)
                     return
                 }
 
-                if (mSocket!= null && mSocket!!.isConnected) {
+//                if (mSocket!= null && mSocket!!.isConnected) {
                     statusHandler.removeMessages(0)
                     statusHandler.sendEmptyMessage(0)
                     run(mSocket)
-                }
+//                }
             } else {
+                initSocket()
+
                 mServerSocket = mBluetoothAdapter.listenUsingInsecureRfcommWithServiceRecord("SERVER", uuid)
                 var shouldLoop = true
 
@@ -525,7 +643,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                             null
                         }
                         mSocket?.also {
-                            if (mSocket != null && mSocket!!.isConnected) {
+//                            if (mSocket != null && mSocket!!.isConnected) {
                                 statusHandler.removeMessages(0)
                                 statusHandler.sendEmptyMessage(0)
 
@@ -534,7 +652,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
 
                                 run(mSocket)
                                 Log.e("SG2", "Bluetooth server socket connect success")
-                            }
+//                            }
 
                         }
                     }
@@ -543,9 +661,26 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
             }
         }
 
+        fun initSocket() {
+            try {
+                mSocket?.inputStream?.close()
+            }catch (e : Exception) { }
+
+            try {
+                mSocket?.outputStream?.close()
+            }catch (e : Exception) { }
+
+            try {
+                mSocket = null
+            }catch (e : Exception) { }
+        }
+
         fun run(socket : BluetoothSocket?) {
             mDataTransferThread!!.setSocket(socket)
             mDataTransferThread!!.start()
+
+            pingHandler.removeMessages(0)
+            pingHandler.sendEmptyMessageDelayed(0, 5000)
         }
     }
 
@@ -554,6 +689,10 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         var mInStream : ObjectInputStream? = null
 
         var mDownloadOutputStream : FileOutputStream? = null
+        var mSocket : BluetoothSocket? = null
+
+        var prevDownloadLocat : Long = 0L
+        var prevDownloadTimeLocat : Long = 0L
 
         constructor() {
             priority = MAX_PRIORITY
@@ -572,6 +711,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
 
         fun setSocket(socket : BluetoothSocket?) {
             try {
+                mSocket = socket
                 mOutputStream = ObjectOutputStream(socket!!.outputStream)
                 mInStream = ObjectInputStream(socket!!.inputStream)
                 isBrokenPipe = false
@@ -585,16 +725,20 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
 
             var isLoopStop = false
 
-            while (!isLoopStop && !isDestroy && mInStream != null) {
+            while (!isLoopStop && !isDestroy && mSocket != null && mSocket!!.inputStream != null) {
 
 //                synchronized(mInStream!!) {
-
 
                 try {
                     //byte array to BLE Protocol
                     val bleProtocol = mInStream!!.readObject() as BLEProtocol
 
                     val command = bleProtocol.command
+
+                    if (command == AppConst.COMMON.PING) {
+//                        Log.e("SG2","[PING CHECK!]")
+                        continue
+                    }
 
                     if (command == AppConst.CLIENT_TO_SERVER.GET_MELON_CHART_LIST) {
                         val ITEMS_SIZE = 10
@@ -624,15 +768,17 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                             maxIndex = origin.size - 1
                                         }
 
-                                        var items = ArrayList<MelonItem>()
+                                        val items = ArrayList<MelonItem>()
+                                        val thumbs = ArrayList<String>()
                                         for (i in startIndex..maxIndex) {
                                             items.add(origin.get(i))
+                                            thumbs.add(origin.get(i).albumImg)
                                         }
 
                                         //list data 먼저 보냄
                                         val byteData = Gson().toJson(items)
 
-                                        var ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.MELON_CHART_LIST).apply {
+                                        val ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.MELON_CHART_LIST).apply {
                                             arg1 = startPage
                                             arg2 = if (origin.size / ITEMS_SIZE > 0 && origin.size % ITEMS_SIZE == 0) (origin.size / ITEMS_SIZE) - 1
                                                 else (origin.size / ITEMS_SIZE)
@@ -641,7 +787,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                         write(ble)
 
                                         //image 가공
-                                        mThumbThread = ThumbsnailThread(getApplication(), items,
+                                        mThumbThread = ThumbsnailThread(getApplication(), thumbs,
                                             object : ThumbsnailThread.ThumbsListener {
                                                 override fun onResult(position: Int, data: ByteArray) {
                                                     val ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.MELON_CHART_LIST_THUMB).apply {
@@ -670,9 +816,11 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                 maxIndex = melonChartData.size - 1
                             }
 
-                            var items = ArrayList<MelonItem>()
+                            val items = ArrayList<MelonItem>()
+                            val thumbs = ArrayList<String>()
                             for (i in startIndex..maxIndex) {
                                 items.add(melonChartData.get(i))
+                                thumbs.add(melonChartData.get(i).albumImg)
                             }
 
                             //list data 먼저 보냄
@@ -695,7 +843,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                             }
 
                             //image 가공
-                            mThumbThread = ThumbsnailThread(getApplication(), items,
+                            mThumbThread = ThumbsnailThread(getApplication(), thumbs,
                                 object :
                                     ThumbsnailThread.ThumbsListener {
                                     override fun onResult(position: Int, data: ByteArray) {
@@ -719,11 +867,10 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                 object : TypeToken<MelonItem>() {}.type
                             )
 
-
-                            stopDownload()
+                            stopWrite()
 
                             prepareLogcat = System.currentTimeMillis()
-                            startStreaming(melonItem, object : StreamingCallback {
+                            startMelonStreaming(melonItem, object : StreamingCallback {
                                 override fun onSuccess(item: MelonStreamingItem) {
                                     val name = "${item.ALBUMID}_${item.PERIOD}_${item.BITRATE}"
 
@@ -745,7 +892,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                             write(ble)
                                         }
 
-                                        override fun onUpdate(data: ByteArray, read: Int, length: Long) {
+                                        override fun onUpdate(data: ByteArray, read: Int, length: Long): Boolean {
                                             if (prepareLogcat != -1L) {
                                                 val stamp = System.currentTimeMillis() - prepareLogcat
                                                 val time = getTimeStamp(stamp)
@@ -763,7 +910,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                                 arg2 = length.toInt()
                                                 content = data
                                             }
-                                            write(ble)
+                                            return write(ble)
                                         }
                                     })
 
@@ -778,12 +925,200 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                         } else {
 
                         }
+                    } else if (command == AppConst.CLIENT_TO_SERVER.GET_YOUTUBE_CHART_LIST) {
+                        val ITEMS_SIZE = 10
+                        val startPage = bleProtocol.arg1 //page  0,1,2,3...
+                        var startIndex = ITEMS_SIZE * startPage
+
+                        //image 가공 stop
+                        mThumbThread?.stopGlide()
+                        mThumbThread = null
+
+                        if (youtubeHotData.size == 0) {
+                            val call = RetrofitService.getInstance.getYoutubeHotList()
+                            call.enqueue(object : Callback<YoutubeDomain> {
+                                override fun onResponse(call: Call<YoutubeDomain>, response: Response<YoutubeDomain>) {
+                                    if (!response.isSuccessful) {
+                                        return
+                                    }
+
+                                    if (response.body() != null && response.body()!!.content != null) {
+                                        youtubeHotData = response.body()!!.content!!
+                                        val origin = response.body()!!.content!!
+                                        var maxIndex = startIndex + ITEMS_SIZE - 1
+
+                                        if (origin.size <= startIndex) {
+                                            return
+                                        } else if (origin.size <= maxIndex) {
+                                            maxIndex = origin.size - 1
+                                        }
+
+                                        val items = ArrayList<YoutubeItem>()
+                                        val thumbs = ArrayList<String>()
+                                        for (i in startIndex..maxIndex) {
+                                            items.add(origin.get(i))
+                                            thumbs.add(origin.get(i).thumbnail)
+                                        }
+
+                                        //list data 먼저 보냄
+                                        val byteData = Gson().toJson(items)
+
+                                        var ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST).apply {
+                                            arg1 = startPage
+                                            arg2 = if (origin.size / ITEMS_SIZE > 0 && origin.size % ITEMS_SIZE == 0) (origin.size / ITEMS_SIZE) - 1
+                                                    else (origin.size / ITEMS_SIZE)
+                                            content = byteData.toByteArray()
+                                        }
+                                        write(ble)
+
+                                        //image 가공
+                                        mThumbThread = ThumbsnailThread(getApplication(), thumbs,
+                                            object : ThumbsnailThread.ThumbsListener {
+                                                override fun onResult(position: Int, data: ByteArray) {
+                                                    val ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST_THUMB).apply {
+                                                        arg1 = startPage
+                                                        arg2 = position
+                                                        content = data
+                                                    }
+                                                    write(ble)
+                                                }
+                                            })
+                                        mThumbThread?.start()
+                                    }
+                                }
+
+                                override fun onFailure(call: Call<YoutubeDomain>, t: Throwable) {
+
+                                }
+                            })
+                        } else {
+                            //local
+                            var maxIndex = startIndex + ITEMS_SIZE - 1
+
+                            if (youtubeHotData.size <= startIndex) {
+                                return
+                            } else if (youtubeHotData.size <= maxIndex) {
+                                maxIndex = youtubeHotData.size - 1
+                            }
+
+                            val items = ArrayList<YoutubeItem>()
+                            val thumbs = ArrayList<String>()
+                            for (i in startIndex..maxIndex) {
+                                items.add(youtubeHotData.get(i))
+                                thumbs.add(youtubeHotData.get(i).thumbnail)
+                            }
+
+                            //list data 먼저 보냄
+                            val byteData = Gson().toJson(items)
+
+                            val ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST).apply {
+                                arg1 = startPage
+                                arg2 = if (youtubeHotData.size / ITEMS_SIZE > 0 && youtubeHotData.size % ITEMS_SIZE == 0) (youtubeHotData.size / ITEMS_SIZE) - 1
+                                        else (youtubeHotData.size / ITEMS_SIZE)
+                                content = byteData.toByteArray()
+                            }
+                            write(ble)
+
+                            //logcat
+                            val stamp = System.currentTimeMillis() - logcat
+
+                            Handler(Looper.getMainLooper()).post {
+                                logMsg.value = getTimeStamp(stamp)
+                            }
+
+                            //image 가공
+                            mThumbThread = ThumbsnailThread(getApplication(), thumbs,
+                                object :
+                                    ThumbsnailThread.ThumbsListener {
+                                    override fun onResult(position: Int, data: ByteArray) {
+                                        val ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST_THUMB).apply {
+                                            arg1 = startPage
+                                            arg2 = position  //maxPage 대신 position
+                                            content = data
+                                        }
+                                        write(ble)
+                                    }
+                                })
+                            mThumbThread?.start()
+                        }
+                    }  else if (command == AppConst.CLIENT_TO_SERVER.GET_YOUTUBE_STREAMING) {
+                        var byteLength = bleProtocol.contentLength
+
+                        if (byteLength > 0) {
+                            val readMessage = String(bleProtocol.content!!, 0, byteLength)
+                            val youtubeItem = Gson().fromJson<YoutubeItem>(readMessage, object : TypeToken<YoutubeItem>() {}.type)
+
+                            stopWrite()
+
+                            prepareLogcat = System.currentTimeMillis()
+                            startYoutubeStreaming(youtubeItem, object : StreamListener {
+                                override fun onResult(result: Boolean, isLive: Boolean, streams: List<VideoStream>?, liveUrl: String) {
+                                    try {
+                                        if (result) {
+//                                            val name = "${youtubeItem.title}_${youtubeItem.id}"
+                                            val name = "${youtubeItem.id}"
+
+                                            val ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_START).apply {
+                                                message = name
+                                            }
+                                            write(ble)
+
+                                            val fileUrl = if (isLive) liveUrl else { streams?.get(0)?.getUrl() } ?: ""
+
+
+                                            Log.e("SG2", "BLE_CTS_GET_YOUTUBE_STREAMING : ${fileUrl}")
+                                            downloadStreamingFile(name, fileUrl, object : DownloadCallback {
+                                                override fun onResult(success: Boolean, fileName: String, size: Long) {
+                                                    if (!success) {
+                                                        return
+                                                    }
+                                                    val ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_DONE).apply {
+                                                        arg2 = size.toInt()
+                                                        message = fileName
+                                                    }
+                                                    write(ble)
+                                                }
+
+                                                override fun onUpdate(data: ByteArray, read: Int, length: Long) : Boolean {
+                                                    if (prepareLogcat != -1L) {
+                                                        val stamp = System.currentTimeMillis() - prepareLogcat
+                                                        val time = getTimeStamp(stamp)
+                                                        Log.e("SG2", "downloadStreamingFile logcat : ${time}")
+                                                        prepareLogcat = -1L
+                                                        Handler(Looper.getMainLooper()).post {
+                                                            logMsg.value = time
+                                                        }
+                                                    }
+                                                    Log.e("SG2","${Util.isMainLooper()} ] YOUTUBE_STREAMING_FILE_DOWNLOADING  : ${read} sent")
+                                                    val ble = BLEProtocol(AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_DOWNLOADING).apply {
+                                                        message = name
+                                                        arg1 = read
+                                                        arg2 = length.toInt()
+                                                        content = data
+                                                    }
+                                                    return write(ble)
+                                                }
+                                            })
+                                        } else {
+
+                                        }
+                                    } catch (e : Exception) {
+                                        Handler(Looper.getMainLooper()).post {
+                                            toastMsg.value = "${e.message}"
+                                        }
+                                    }
+                                }
+                            })
+                        } else {
+
+                        }
+                    } else if (command == AppConst.CLIENT_TO_SERVER.STOP_UPLOAD_STREAMING) {
+                        stopWrite()
                     } else if (command == AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_START) {
                         Log.e("SG2", "BLE_STC_MELON_STREAMING_FILE_START")
                         val fileName = bleProtocol.message
 
-                        val folderName =
-                            AppConst.RETROFIT.DOWNLOAD_MP3_FOLDER_PATH
+                        val folderName = AppConst.RETROFIT.DOWNLOAD_MP3_FOLDER_PATH
                         val filepath = folderName + fileName
                         val folder = File(folderName)
 
@@ -806,7 +1141,7 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                         }
 
                         isPrepare = false
-                        prevPercent = 0
+                        prevPercent = -1
                         fileDownloadStop = false
                         wrote = 0
                     } else if (command == AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_DOWNLOADING) {
@@ -825,15 +1160,21 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                 mDownloadOutputStream!!.write(dataStr, 0, read)
                                 wrote += read
                                 percent = (wrote * 100L / fileLength).toInt()
-                                percent5 = percent / AppConst.COMMON.MIN_PRELOAD_BUFFER
+                                percent5 = percent / AppConst.COMMON.MIN_PRELOAD_BUFFER_PERCENT
 
 //                                    Log.e("SG2", "${Util.isMainLooper()} ] $count 번째 : ${wrote}byte 다운로드 완료 / total bytes : $fileLength")
                                 if (percent != 100 && prevPercent != percent5) {
                                     prevPercent = percent5
 
+//                                    Log.e("SG2", "${Util.isMainLooper()} ] ${wrote}byte 다운로드 완료 / total bytes : $fileLength")
+
                                     val progressValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI, percent, 0, null)
                                     uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI)
                                     uiHandler.sendMessage(progressValue)
+
+//                                    val downloadedValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOADED_SIZE_UI, wrote, 0, null)
+//                                    uiHandler.removeMessages(AppConst.COMMON.DOWNLOADED_SIZE_UI)
+//                                    uiHandler.sendMessage(downloadedValue)
 
                                     val filePath = AppConst.RETROFIT.DOWNLOAD_MP3_FOLDER_PATH + fileName
 
@@ -868,6 +1209,119 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                         uiHandler.sendMessage(progressValue)
 
                         val filePath = AppConst.RETROFIT.DOWNLOAD_MP3_FOLDER_PATH + fileName
+                        val dataValue = exoPlayerHandlerMediaPlayer.obtainMessage(command, 0, fileLength, filePath)
+                        exoPlayerHandlerMediaPlayer.removeCallbacks(null)
+                        exoPlayerHandlerMediaPlayer.sendMessageDelayed(dataValue, 0)
+
+                    } else if (command == AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_START) {
+                        Log.e("SG2", "BLE_STC_YOUTUBE_STREAMING_FILE_START")
+                        val fileName = bleProtocol.message
+
+                        val folderName = AppConst.RETROFIT.DOWNLOAD_MP4_FOLDER_PATH
+                        val filepath = folderName + fileName
+                        val folder = File(folderName)
+
+                        if (!folder.exists()) {
+                            folder.mkdirs()
+                        }
+
+                        val mp4File = File(filepath)
+
+                        try {
+                            if (mp4File.exists()) {
+                                Log.e("SG2", "download file already exist")
+                                mp4File.delete()
+                            }
+
+                            mp4File.createNewFile()
+                        }catch(e2:Exception) {
+                            Log.e("SG2", "createNewFile error : ", e2)
+                        }
+
+
+                        try {
+                            mDownloadOutputStream = FileOutputStream(mp4File)
+                        } catch (e: Exception) {
+                            Log.e("SG2", "RandomAccessFile error : ", e)
+                        }
+
+                        isPrepare = false
+                        prevPercent = 0
+                        fileDownloadStop = false
+                        wrote = 0
+                    } else if (command == AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_DOWNLOADING) {
+                        val read = bleProtocol.arg1
+                        val fileLength = bleProtocol.arg2
+                        val fileName = bleProtocol.message
+                        val dataStr = bleProtocol.content
+
+                        try {
+                            var percent = 0
+                            var percent5: Int = 0
+
+                            if (mDownloadOutputStream != null && !fileDownloadStop) {
+
+                                mDownloadOutputStream!!.write(dataStr, 0, read)
+                                wrote += read
+                                percent = (wrote * 100L / fileLength).toInt()
+                                percent5 = (wrote / AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE).toInt()
+
+                                if (prevDownloadLocat != 0L) {
+                                    val diffSize = wrote - prevDownloadLocat
+                                    val diffTime = System.currentTimeMillis() - prevDownloadTimeLocat
+                                    val speed =  (diffSize * 1.00f) / (diffTime * 1.00f)
+
+                                    val speedValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_SPEED_UI, 0, 0, speed)
+                                    uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_SPEED_UI)
+                                    uiHandler.sendMessage(speedValue)
+                                }
+
+                                prevDownloadLocat = wrote
+                                prevDownloadTimeLocat = System.currentTimeMillis()
+
+
+                                if (percent != 100 && prevPercent != percent5) {
+                                    prevPercent = percent5
+
+//                                    Log.e("SG2", "${Util.isMainLooper()} ] ${wrote}byte 다운로드 완료 / total bytes : $fileLength")
+
+                                    val progressValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI, percent, 0, null)
+                                    uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI)
+                                    uiHandler.sendMessage(progressValue)
+
+                                    val filePath = AppConst.RETROFIT.DOWNLOAD_MP4_FOLDER_PATH + fileName
+
+                                    val dataValue = exoPlayerHandlerMediaPlayer.obtainMessage(command, wrote.toInt(), fileLength, filePath)
+                                    exoPlayerHandlerMediaPlayer.sendMessage(dataValue)
+                                }
+
+                            } else { }
+
+
+                        } catch (e: Exception) {
+                            Log.e("SG2", "download Error : ", e)
+                        }
+                    } else if (command == AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_DONE) {
+                        Log.e("SG2", "BLE_STC_MELON_STREAMING_FILE_DONE")
+
+
+                        val fileName = bleProtocol.message
+                        val fileLength = bleProtocol.arg2
+
+                        Log.e("SG2", "${Util.isMainLooper()} ] 100% 다운로드 완료")
+
+                        try {
+                            mDownloadOutputStream?.flush()
+                            mDownloadOutputStream?.close()
+                        } catch (e: Exception) {
+
+                        }
+
+                        val progressValue = uiHandler.obtainMessage(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI, 100, 0, null)
+                        uiHandler.removeMessages(AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI)
+                        uiHandler.sendMessage(progressValue)
+
+                        val filePath = AppConst.RETROFIT.DOWNLOAD_MP4_FOLDER_PATH + fileName
                         val dataValue = exoPlayerHandlerMediaPlayer.obtainMessage(command, 0, fileLength, filePath)
                         exoPlayerHandlerMediaPlayer.removeCallbacks(null)
                         exoPlayerHandlerMediaPlayer.sendMessageDelayed(dataValue, 0)
@@ -927,8 +1381,61 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                 uiHandler.sendMessage(thumbValue)
                             } else {}
                         } else {}
-                    } else {}
+                    } else if (command == AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST) {
+                        var startPage = bleProtocol.arg1  //startPage
+                        var endPage = bleProtocol.arg2 //endPage
+                        val byteLength = bleProtocol.contentLength
 
+                        if (byteLength > 0) {
+                            val logcat = System.currentTimeMillis()
+                            val stamp = logcat - this@MainViewModel.logcat
+                            val time = getTimeStamp(stamp)
+                            Handler(Looper.getMainLooper()).post {
+                                logMsg.value = "$time , $byteLength bytes"
+                            }
+
+                            //buffer -> Json Array
+                            val readMessage = String(bleProtocol.content!!, 0, byteLength)
+                            val json = Gson().fromJson<ArrayList<YoutubeItem>>(readMessage, object : TypeToken<ArrayList<YoutubeItem>>() {}.type)
+
+                            val pageValue = uiHandler.obtainMessage(AppConst.SERVER_TO_CLIENT.PAGE_INDEX, startPage, endPage, json)
+
+                            uiHandler.removeMessages(AppConst.SERVER_TO_CLIENT.PAGE_INDEX)
+                            uiHandler.sendMessage(pageValue)
+
+                            val dataValue = uiHandler.obtainMessage(AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST, 0, 0, json)
+
+                            uiHandler.removeMessages(AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST)
+                            uiHandler.sendMessage(dataValue)
+                        } else {}
+                    } else if (command == AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST_THUMB) {
+                        var startPage = bleProtocol.arg1  //startPage
+                        var position = bleProtocol.arg2 //position
+                        val byteLength = bleProtocol.contentLength
+
+                        if (byteLength > 0) {
+                            if (startPage == this@MainViewModel.startPage) {
+                                //같은 페이지인지 확인
+                                val thumbValue = uiHandler.obtainMessage(AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST_THUMB, startPage, position, bleProtocol.content)
+
+                                uiHandler.sendMessage(thumbValue)
+                            } else {}
+                        } else {}
+                    }
+
+                    SystemClock.sleep(1);
+                } catch (e2 : SocketTimeoutException) {
+                    Log.e("SG2", "run() SocketTimeoutException : ", e2)
+                    if (!AppConst.COMMON.IS_CLIENT) {
+                        Log.e("SG2", "서버 ack 대기")
+                        uiHandler.removeMessages(AppConst.COMMON.RESTART_CONNECTION_SERVER)
+                        uiHandler.sendEmptyMessage(AppConst.COMMON.RESTART_CONNECTION_SERVER)
+                    } else {
+                        uiHandler.sendEmptyMessage(AppConst.COMMON.RESTART_DATATRANSFER_THREAD)
+                        uiHandler.sendEmptyMessage(AppConst.COMMON.LOADING_DIALOG_DISMISS)
+                    }
+                    isLoopStop = true
+                    break
                 } catch (e: IOException) {
                     Log.e("SG2", "run() IOException : ", e)
                     if (!AppConst.COMMON.IS_CLIENT) {
@@ -941,7 +1448,8 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                     }
                     isLoopStop = true
                     break
-                } catch (e: Exception) {
+                }
+                catch (e: Exception) {
                     Log.e("SG2", "run() Exception : ", e)
                 }
 
@@ -949,17 +1457,20 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
             }
         }
 
-        fun write(ble : BLEProtocol) {
+        fun write(ble : BLEProtocol) : Boolean {
             if (mOutputStream == null) {
-                return;
+                return false
             }
             synchronized(mOutputStream!!) {
                 try {
-                    mOutputStream?.flush()
                     mOutputStream?.reset()
                     mOutputStream?.writeObject(ble)
+                    mOutputStream?.flush()
+                    return true
                 } catch (e : IOException) {
                     Log.e("SG2","write error : ", e)
+
+                    return false
                 }
             }
         }
@@ -975,10 +1486,30 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                 mInStream = null
             } catch (e : Exception) {}
 
+            try {
+                mSocket?.close()
+                mSocket = null
+            } catch (e : Exception) {}
+
         }
     }
 
     //handlers
+
+    val pingHandler = object : Handler() {
+        override fun handleMessage(msg: Message) {
+            super.handleMessage(msg)
+
+            if (isBrokenPipe) {
+                return
+            }
+
+            mDataTransferThread?.write(BLEProtocol(AppConst.COMMON.PING))
+
+            removeMessages(0)
+            sendEmptyMessageDelayed(0, 2000)
+        }
+    }
 
     val statusHandler = object : Handler() {
         override fun handleMessage(msg: Message) {
@@ -1013,33 +1544,48 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
         override fun handleMessage(msg: Message) {
             super.handleMessage(msg)
 
-            if (msg.what == AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_START) {
-                playerController.setStop()
-                isPrepare = false
-            } else if (msg.what == AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_DOWNLOADING ||
-                msg.what == AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_DONE) {
-
-                if (fileDownloadStop) {
-                    return
-                }
-                val fileWrote = msg.arg1
-                val fileLength = msg.arg2
-                val filePath : String = msg.obj as String
-                val pathes = filePath.split("/")
-                var fileName = ""
-                if (pathes.size > 0) {
-                    fileName = pathes[pathes.size - 1]
+            when (msg.what) {
+                AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_START,
+                AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_START -> {
+                    playerController.setStop()
+                    isPrepare = false
                 }
 
-                if (isPrepare) {
-                    playerController.addByteData()
-                } else {
-                    isPrepare = true
-                    playerController.prepare(true, "$fileLength", filePath)
+                AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_DOWNLOADING,
+                AppConst.SERVER_TO_CLIENT.MELON_STREAMING_FILE_DONE,
+                AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_DOWNLOADING,
+                AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_DONE -> {
+                    if (fileDownloadStop) {
+                        return
+                    }
+                    val fileWrote = msg.arg1
+                    val fileLength = msg.arg2
+                    val filePath : String = msg.obj as String
+                    val pathes = filePath.split("/")
+                    var fileName = ""
+                    if (pathes.size > 0) {
+                        fileName = pathes[pathes.size - 1]
+                    }
+
+                    downloadedSizeValue.value = fileWrote
+
+                    if (isPrepare) {
+                        playerController.addByteData()
+                    } else {
+                        isPrepare = true
+                        if (msg.what == AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_DOWNLOADING ||
+                            msg.what == AppConst.SERVER_TO_CLIENT.YOUTUBE_STREAMING_FILE_DONE) {
+                            playerController.setIsVideo(true)
+                            surfaceVisibility.value = View.VISIBLE
+                        } else {
+                            playerController.setIsVideo(false)
+                            surfaceVisibility.value = View.GONE
+                        }
+                        playerController.prepare(true, "$fileLength", filePath)
+                    }
                 }
 
             }
-
         }
     }
 
@@ -1054,6 +1600,13 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                             var obj = msg.obj as ArrayList<MelonItem>
 
                             melonListValue.value = obj
+                        }
+                    }
+                    AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST -> {
+                        if (msg!= null) {
+                            var obj = msg.obj as ArrayList<YoutubeItem>
+
+                            youtubeListValue.value = obj
                         }
                     }
                     AppConst.SERVER_TO_CLIENT.PAGE_INDEX -> {
@@ -1072,7 +1625,18 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
 
                             val map = HashMap<Int, ByteArray>()
                             map.put(position, obj)
-                            thumbListValue.value = map
+                            melonThumbsValue.value = map
+                        }
+                    }
+                    AppConst.SERVER_TO_CLIENT.YOUTUBE_HOT_LIST_THUMB -> {
+                        if (msg!= null) {
+                            startPage = msg.arg1
+                            var position = msg.arg2
+                            var obj = msg.obj as ByteArray
+
+                            val map = HashMap<Int, ByteArray>()
+                            map.put(position, obj)
+                            youtubeThumbsValue.value = map
                         }
                     }
                     AppConst.COMMON.RESTART_CONNECTION_SERVER -> {
@@ -1080,14 +1644,14 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                         mConnectionThread?.start()
                     }
                     AppConst.COMMON.RESTART_DATATRANSFER_THREAD -> {
-                        try {
-                            mDataTransferThread = DataTransferThread()
-                            mDataTransferThread!!.setSocket(mSocket)
-                            mDataTransferThread!!.start()
-                        } catch (e : Exception ) {
-                            isBrokenPipe = true
-                        }
-
+                        isBrokenPipe = true
+//                        try {
+//                            mDataTransferThread = DataTransferThread()
+//                            mDataTransferThread!!.setSocket(mSocket)
+//                            mDataTransferThread!!.start()
+//                        } catch (e : Exception ) {
+//
+//                        }
                     }
                     AppConst.COMMON.LOADING_DIALOG_SHOW -> {
                         loadingValue.value = View.VISIBLE
@@ -1098,8 +1662,14 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                     AppConst.COMMON.DOWNLOAD_PERCENTAGE_UI -> {
                         downloadValue.value = msg.arg1
                     }
+                    AppConst.COMMON.DOWNLOAD_SPEED_UI -> {
+                        downloadedSpeedValue.value = msg.obj as Float
+                    }
                     AppConst.COMMON.PRELOAD_PERCENTAGE_UI -> {
                         preloadValue.value = msg.arg1
+                    }
+                    AppConst.COMMON.DOWNLOADED_SIZE_UI -> {
+                        downloadedSizeValue.value = msg.arg1
                     }
                 }
             } catch (e : Exception) {
@@ -1112,13 +1682,15 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
 
     override fun onPrepared(duration: Int) {
         Handler(Looper.getMainLooper()).post {
-            durationValue.value = Util.convertMMSS(duration)
+            durationValue.value = duration
             val stamp = System.currentTimeMillis() - prepareLogcat
             logMsg.value = getTimeStamp(stamp)
         }
 
-        playerController.setPlay()
-        onBuffering(false)
+        Handler(Looper.getMainLooper()).postDelayed({
+            playerController.setPlay()
+            onBuffering(false)
+        }, 500)
     }
 
     override fun onPreload(percent: Int) {
@@ -1128,6 +1700,8 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
     }
 
     override fun onPlayed() {
+        bufferingHandler.removeMessages(0)
+
         Handler(Looper.getMainLooper()).post {
             playpauseValue.value = R.drawable.exo_icon_pause
         }
@@ -1147,15 +1721,32 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
 
     override fun onProgress(sec: Int) {
         Handler(Looper.getMainLooper()).post {
-            progressValue.value = Util.convertMMSS(sec)
+            progressValue.value = sec
         }
     }
 
     override fun onBuffering(buffering : Boolean) {
         if (buffering) {
+            //pause 후 1초 뒤 resume
+            if (::playerController.isInitialized && playerController.isPlaying) {
+                playerController.setPause()
+            }
+            bufferingHandler.removeMessages(0)
             uiHandler.sendEmptyMessage(AppConst.COMMON.LOADING_DIALOG_SHOW)
         } else {
+            bufferingHandler.removeMessages(0)
+            bufferingHandler.sendEmptyMessageDelayed(0, 1000)
+        }
+    }
+
+    val bufferingHandler = object : Handler() {
+        override fun handleMessage(msg: Message) {
+            super.handleMessage(msg)
+
             uiHandler.sendEmptyMessage(AppConst.COMMON.LOADING_DIALOG_DISMISS)
+            if (playerController != null) {
+                playerController.setPlay()
+            }
         }
     }
 

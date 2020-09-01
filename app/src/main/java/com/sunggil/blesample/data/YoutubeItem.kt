@@ -11,7 +11,11 @@ class YoutubeItem {
         }
     var title = ""
     var thumbnail = ""
+    var thumbnailByte : ByteArray? = null
     var url = ""
+        set(value) {
+            field = value ?: ""
+        }
     var duration = 0 // 리스트
     var publish_day = ""
     var expires_in = 0
