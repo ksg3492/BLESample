@@ -1,6 +1,7 @@
 package com.sunggil.blesample.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.content.*
 import android.graphics.Color
@@ -9,8 +10,6 @@ import android.util.Log
 import android.view.SurfaceHolder
 import android.view.View
 import android.widget.*
-import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.constraintlayout.widget.ConstraintSet
 import androidx.lifecycle.Observer
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -45,7 +44,8 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
     var mBound = false
 
 
-    lateinit var playerServiceMediaPlayer : ExoPlayerServiceMediaPlayer
+//    lateinit var playerServicePlayer : ExoPlayerServiceMediaPlayer
+    lateinit var playerServicePlayer : ExoPlayerService
 
     override fun getLayout(): Int {
         return R.layout.activity_main
@@ -55,13 +55,13 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
         return MainViewModel(application)
     }
 
-    val serviceConnectionMediaPlayer = object : ServiceConnection {
+    val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             if (!mBound) {
-                val binder = service as ExoPlayerServiceMediaPlayer.LocalBinder
-                playerServiceMediaPlayer = binder.service
-                getViewModel().setPlayerService(playerServiceMediaPlayer)
-                playerServiceMediaPlayer.setSurfaceHolder(surfaceHolder)
+                val binder = service as ExoPlayerService.LocalBinder
+                playerServicePlayer = binder.service
+                getViewModel().setPlayerService(playerServicePlayer)
+//                playerServicePlayer.setSurfaceHolder(surfaceHolder)
                 mBound = true
             }
         }
@@ -84,13 +84,14 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
 
     }
 
+    @SuppressLint("WrongConstant")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             TedPermission.with(this)
                     .setPermissionListener(permissionListener)
-                    .setDeniedMessage("해당 앱을 이용하시려면 권한이 필요합니다.\\n[설정] > [권한]에서 설정하세요.")
+                    .setDeniedMessage("해당 앱을 이용하시려면 권한이 필요합니다.\n[설정] > [권한]에서 설정하세요.")
                     .setPermissions(
                             Manifest.permission.BLUETOOTH_ADMIN,
                             Manifest.permission.BLUETOOTH,
@@ -104,7 +105,7 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
 
         adapterMelon = AdapterMelon(object : OnItemClickCallback {
             override fun onClick(position: Int) {
-                if (!::playerServiceMediaPlayer.isInitialized) {
+                if (!::playerServicePlayer.isInitialized) {
                     Toast.makeText(baseContext, "Player is not ready!", Toast.LENGTH_SHORT).show()
                     return
                 }
@@ -114,7 +115,7 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
         })
         adapterYoutube = AdapterYoutube(object : OnItemClickCallback {
             override fun onClick(position: Int) {
-                if (!::playerServiceMediaPlayer.isInitialized) {
+                if (!::playerServicePlayer.isInitialized) {
                     Toast.makeText(baseContext, "Player is not ready!", Toast.LENGTH_SHORT).show()
                     return
                 }
@@ -161,11 +162,11 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
         }
 
         bt_playpause.setOnClickListener {
-            if (::playerServiceMediaPlayer.isInitialized && AppConst.COMMON.IS_CLIENT) {
-                if (playerServiceMediaPlayer.isPlaying) {
-                    playerServiceMediaPlayer.setPause()
+            if (::playerServicePlayer.isInitialized && AppConst.COMMON.IS_CLIENT) {
+                if (playerServicePlayer.isPlaying) {
+                    playerServicePlayer.setPause()
                 } else {
-                    playerServiceMediaPlayer.setPlay()
+                    playerServicePlayer.setPlay()
                 }
             }
         }
@@ -205,7 +206,7 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
             tv_status.text = "WAITING..."
 
             if (AppConst.COMMON.IS_CLIENT) {
-                bindPlayerServiceMediaPlayer()
+                bindPlayerService()
             }
 
             val mBluetoothAdapter : BluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
@@ -224,8 +225,8 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
         bt_video_close.setOnClickListener({
             layout_surface.visibility = View.GONE
 //            playerServiceMediaPlayer.setPause()
-            playerServiceMediaPlayer.setStop()
-            playerServiceMediaPlayer.release()
+            playerServicePlayer.setStop()
+            playerServicePlayer.release()
             pb_progress.progress = 0
             pb_progress.max = 100
             tv_progress.text = Util.convertMMSS(0)
@@ -240,12 +241,12 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
         })
         tv_downsize.text = "${AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE / 1024} kByte"
         bt_up.setOnClickListener {
-            AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE = AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE * 2
+            AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE += (50 * 1024)
             tv_downsize.text = "${AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE / 1024} kByte"
             Toast.makeText(baseContext, "${tv_downsize.text}!", Toast.LENGTH_LONG).show()
         }
         bt_down.setOnClickListener {
-            AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE = AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE / 2
+            AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE -= (50 * 1024)
             tv_downsize.text = "${AppConst.COMMON.MIN_PRELOAD_BUFFER_SIZE / 1024} kByte"
             Toast.makeText(baseContext, "${tv_downsize.text}!", Toast.LENGTH_LONG).show()
         }
@@ -342,10 +343,10 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
 
     }
 
-    fun bindPlayerServiceMediaPlayer() {
+    fun bindPlayerService() {
         if (!mBound) {
-            val intent = Intent(applicationContext, ExoPlayerServiceMediaPlayer::class.java)
-            bindService(intent, serviceConnectionMediaPlayer, Context.BIND_AUTO_CREATE)
+            val intent = Intent(applicationContext, ExoPlayerService::class.java)
+            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         }
     }
 
@@ -354,8 +355,8 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
 
         try {
             if (mBound) {
-                playerServiceMediaPlayer.release()
-                unbindService(serviceConnectionMediaPlayer)
+                playerServicePlayer.release()
+                unbindService(serviceConnection)
                 mBound = false
             }
         }catch (e: Exception) {}

@@ -27,22 +27,19 @@ public class BufferMediaDataSource extends MediaDataSource {
     }
 
     public void inputData(byte[] data, int length) {
-
         if (mBuffer != null) {
-//            synchronized (mBuffer) {
-                System.arraycopy(data, 0, mBuffer, writeIndex, length);
+            System.arraycopy(data, 0, mBuffer, writeIndex, length);
 
-                writeIndex += length;
+            writeIndex += length;
 
-                float per = writeIndex * 1.00f / fileSize * 1.00f;
-                int percent = (int)(per * 100);
+            float per = writeIndex * 1.00f / fileSize * 1.00f;
+            int percent = (int)(per * 100);
 
 //                int percent = (writeIndex * 100) / fileSize;
 
-                if (callback != null) {
-                    callback.onPreload(percent);
-                }
-//            }
+            if (callback != null) {
+                callback.onPreload(percent);
+            }
         }
     }
 
@@ -52,62 +49,54 @@ public class BufferMediaDataSource extends MediaDataSource {
 
     @Override
     public int readAt(long position, byte[] buffer, int offset, int size) throws IOException {
-            if(position == writeIndex) {
-                return -1;
-            }
+        if(position == writeIndex) {
+            return -1;
+        }
 
-            if(position + size > writeIndex) {
-                if(fileSize == writeIndex) {
-                    Log.e("SG2","MediaDataSource loaded data End.");
-                    int rest = (int) (writeIndex - position);
+        if(position + size > writeIndex) {
+            if(fileSize == writeIndex) {
+                Log.e("SG2","MediaDataSource loaded data End.");
+                int rest = (int) (writeIndex - position);
 
-                    System.arraycopy(mBuffer, (int) position, buffer, offset, rest);
+                System.arraycopy(mBuffer, (int) position, buffer, offset, rest);
 
-                    return rest;
+                return rest;
 
-                } else {
-                    Log.e("SG2","미디어에 필요한 Bytes : " + (position + size) + " / " + writeIndex + "  Bytes");
-                    Log.e("SG2","MediaDataSource loading data is faster than downloading data. Waiting...");
-                    //loading data is faster than downloading data.
+            } else {
+                Log.e("SG2","미디어에 필요한 Bytes : " + (position + size) + " / " + writeIndex + "  Bytes");
+                Log.e("SG2","MediaDataSource loading data is faster than downloading data. Waiting...");
+                //loading data is faster than downloading data.
 
-//                if (!bufferFlag) {
-//                    if (callback != null) {
-//                        callback.onBuffering(true);
-//                    }
-//                }
-//                bufferFlag = true;
-
-                    while(!isStop) {
-                        if (position + size <= writeIndex) {
-                            if (callback != null) {
-                                callback.onBuffering(false);
-                            }
-                            break;
-                        }
-
+                while(!isStop) {
+                    if (position + size <= writeIndex) {
                         if (callback != null) {
-                            callback.onBuffering(true);
+                            callback.onBuffering(false);
                         }
-
-                        try {
-                            Thread.sleep(100);    // wait a second for downloading.
-                        } catch (InterruptedException e) { }
+                        break;
                     }
+
+                    if (callback != null) {
+                        callback.onBuffering(true);
+                    }
+
+                    try {
+                        Thread.sleep(100);    // wait a second for downloading.
+                    } catch (InterruptedException e) { }
                 }
             }
+        }
 
-            if (mBuffer != null) {
-                System.arraycopy(mBuffer, (int) position, buffer, offset, size);
+        if (mBuffer != null) {
+            System.arraycopy(mBuffer, (int) position, buffer, offset, size);
+            return size;
+        }
 
-                return size;
-
-            }
-
-            return 0;
+        return 0;
     }
 
     @Override
     public long getSize() throws IOException {
+        Log.e("SG2","BufferMediaSource getSize()");
             return fileSize;
     }
 

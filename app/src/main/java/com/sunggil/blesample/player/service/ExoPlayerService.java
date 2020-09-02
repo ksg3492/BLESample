@@ -11,9 +11,11 @@ import android.os.IBinder;
 import android.os.Message;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.google.android.exoplayer2.C;
+import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.ExoPlayerFactory;
 import com.google.android.exoplayer2.Player;
@@ -23,6 +25,7 @@ import com.google.android.exoplayer2.ext.okhttp.OkHttpDataSourceFactory;
 import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
 import com.google.android.exoplayer2.extractor.ExtractorsFactory;
 import com.google.android.exoplayer2.extractor.mp3.Mp3Extractor;
+import com.google.android.exoplayer2.extractor.mp4.Mp4Extractor;
 import com.google.android.exoplayer2.source.BehindLiveWindowException;
 import com.google.android.exoplayer2.source.ConcatenatingMediaSource;
 import com.google.android.exoplayer2.source.ExtractorMediaSource;
@@ -31,6 +34,7 @@ import com.google.android.exoplayer2.source.ProgressiveMediaSource;
 import com.google.android.exoplayer2.source.dash.DashMediaSource;
 import com.google.android.exoplayer2.source.dash.DefaultDashChunkSource;
 import com.google.android.exoplayer2.source.hls.HlsMediaSource;
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.upstream.ByteArrayDataSource;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
@@ -45,10 +49,14 @@ import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvicto
 import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 import com.google.android.exoplayer2.util.Util;
 import com.sunggil.blesample.network.CustomSSLOkHttpClient;
+import com.sunggil.blesample.player.BufferingCallback;
+import com.sunggil.blesample.player.InputStreamDataSource;
 import com.sunggil.blesample.player.PlayerCallback;
 import com.sunggil.blesample.player.PlayerController;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.Objects;
 
 import okhttp3.OkHttpClient;
@@ -65,7 +73,11 @@ public class ExoPlayerService extends Service implements PlayerController {
 
     private SimpleExoPlayer exoPlayer = null;
     private ExoDataSourceFactory dataSourceFactory = null;
+    private String mFilePath = "";
     private boolean isPrepared = false;
+    private boolean isDataSourcePrepared = false;
+
+    private InputStreamDataSource inputStreamDataSource = null;
 
     public class LocalBinder extends Binder {
         public ExoPlayerService getService() {
@@ -135,7 +147,13 @@ public class ExoPlayerService extends Service implements PlayerController {
     private void createPlayer() {
         if (exoPlayer == null) {
             dataSourceFactory = new ExoDataSourceFactory(getApplicationContext(), MAX_CACHE_SIZE, MAX_FILE_SIZE);
-            exoPlayer = ExoPlayerFactory.newSimpleInstance(getApplicationContext());
+
+//            DefaultLoadControl loadControl = new DefaultLoadControl.Builder().setBufferDurationsMs(100*1024, 200*1024, 1024, 1024).createDefaultLoadControl();
+            DefaultLoadControl loadControl = new DefaultLoadControl.Builder().setBufferDurationsMs(1 * 1000, 2*1000, 500, 500).createDefaultLoadControl();
+
+            exoPlayer = ExoPlayerFactory.newSimpleInstance(getApplicationContext(), new DefaultTrackSelector(), loadControl);
+//            exoPlayer = ExoPlayerFactory.newSimpleInstance(getApplicationContext());
+
             exoPlayer.addListener(eventListener);
             AudioAttributes audioAttributes = new AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -306,44 +324,66 @@ public class ExoPlayerService extends Service implements PlayerController {
     }
 
     @Override
-    public void prepare(boolean isLocal, @Nullable String customKey, String url) {
+    public void prepare(boolean isLocal, @Nullable String fileLength, String url) {
+        mFilePath = url;
+        int length = 0;
+        try {
+            if (fileLength != null) {
+                length = Integer.parseInt(fileLength);
+            }
+        }catch (Exception e ) {
+
+        }
+
+        isPrepared = false;
+        isDataSourcePrepared = false;
+
         createPlayer();
         typeSeekTo = TYPE_SEEK_TO_NONE;
         try {
-            MediaSource mediaSource;
 
-            if (isLocal) {
-                Context context = getApplicationContext();
-                DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(context, Util.getUserAgent(context, context.getApplicationInfo().name));
-//                DataSource.Factory dataSourceFactory = new DefaultHttpDataSourceFactory(Util.getUserAgent(context, context.getApplicationInfo().name));
+            inputStreamDataSource = new InputStreamDataSource(mFilePath, length, new BufferingCallback() {
+                @Override
+                public void onBuffering(boolean buffering) {
+                    if (playerCallback != null) {
+                        playerCallback.onBuffering(buffering);
+                    }
+                }
 
-                mediaSource = new ExtractorMediaSource.Factory(dataSourceFactory).createMediaSource(Uri.parse(url));
+                @Override
+                public void onPreload(int percent) {
+                    if (playerCallback != null) {
+                        playerCallback.onPreload(percent);
+                    }
+                }
+            });
 
-                //안되는것들 .mp3 확장자로했을때
-//                mediaSource = new DashMediaSource.Factory(dataSourceFactory).createMediaSource(Uri.parse(url));
-//                mediaSource = new HlsMediaSource.Factory(dataSourceFactory).createMediaSource(Uri.parse(url));
-//                mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(Uri.parse(url));
-//                mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(Uri.parse(url));
-
-            } else {
-                return;
-//                if (url.toUpperCase().contains("M3U8")) {
-//                    Context context = getApplicationContext();
-//                    mediaSource = new HlsMediaSource.Factory(new DefaultHttpDataSourceFactory(Util.getUserAgent(context, context.getApplicationInfo().name)))
-//                            .createMediaSource(Uri.parse(url));
-//                } else {
-//                    ExtractorMediaSource.Factory factory = new ExtractorMediaSource.Factory(dataSourceFactory);
-//                    factory.setCustomCacheKey(customKey);
-//                    mediaSource = factory.createMediaSource(Uri.parse(url));
-//                }
+            try {
+                inputStreamDataSource.open(null);
+            } catch (IOException e) {
+                Log.e("SG2","mediaSource.open Error : " , e);
             }
+
+            DataSource.Factory factory = new DataSource.Factory() {
+
+                @Override
+                public DataSource createDataSource() {
+                    return inputStreamDataSource;
+                }
+            };
+//            MediaSource audioSource = new ExtractorMediaSource(inputStreamDataSource.getUri(), factory, new DefaultExtractorsFactory(), null, null);
+            MediaSource audioSource = new ProgressiveMediaSource.Factory(factory, Mp4Extractor.FACTORY).createMediaSource(Uri.parse(mFilePath));
+
+            addByte();
+
             if (exoPlayer.getPlaybackState() != Player.STATE_IDLE) {
                 setStop();
             }
-            isPrepared = true;
 
             exoPlayer.setPlayWhenReady(true);
-            exoPlayer.prepare(mediaSource);
+            exoPlayer.prepare(audioSource);
+            isDataSourcePrepared = true;
+            isPrepared = true;
         } catch (Exception e) {
             isPrepared = false;
 
@@ -380,10 +420,61 @@ public class ExoPlayerService extends Service implements PlayerController {
 //        }
     }
 
+    private boolean isAddbyteDone = true;
     @Override
     public void addByteData() {
-
+        if (isDataSourcePrepared && isAddbyteDone) {
+            addByteHandler.removeMessages(0);
+            addByte();
+        } else {
+            addByteHandler.removeMessages(0);
+            addByteHandler.sendEmptyMessageDelayed(0, 500);
+        }
     }
+
+    public void addByte() {
+        if (inputStreamDataSource == null) {
+            return;
+        }
+
+        try {
+            isAddbyteDone = false;
+            byte[] data = readFileToByteArray(new File(mFilePath));
+
+            int index = inputStreamDataSource.getWriteIndex();
+            byte[] newByte = new byte[data.length - index];
+            System.arraycopy(data, index, newByte, 0, data.length - index);
+
+            inputStreamDataSource.inputData(newByte, newByte.length);
+            isAddbyteDone = true;
+        }catch (Exception e) {
+            Log.e("SG2","addByte() Error : " , e);
+        }
+    }
+
+    private byte[] readFileToByteArray(File file){
+        FileInputStream fis = null;
+        // Creating a byte array using the length of the file
+        // file.length returns long which is cast to int
+        byte[] bArray = new byte[(int) file.length()];
+        try{
+            fis = new FileInputStream(file);
+            fis.read(bArray);
+            fis.close();
+        }catch(IOException e){
+            Log.e("SG2","readFileToByteArray Error : " , e);
+        }
+        return bArray;
+    }
+
+    private Handler addByteHandler = new Handler() {
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            super.handleMessage(msg);
+
+            addByteData();
+        }
+    };
 
     private MediaSource createMediaSourceFromByteArray(byte[] data) {
         final ByteArrayDataSource byteArrayDataSource = new ByteArrayDataSource(data);

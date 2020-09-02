@@ -1063,6 +1063,11 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                                             }
                                             write(ble)
 
+
+                                            for (vs in streams!!) {
+                                                val res = vs.resolution
+                                                Log.e("SG2","streams.. $res")
+                                            }
                                             val fileUrl = if (isLive) liveUrl else { streams?.get(0)?.getUrl() } ?: ""
 
 
