@@ -1676,6 +1676,13 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
                     AppConst.COMMON.DOWNLOADED_SIZE_UI -> {
                         downloadedSizeValue.value = msg.arg1
                     }
+                    AppConst.COMMON.PREPARE_LOGCAT_UI -> {
+                        if (prepareLogcat != 0L) {
+                            val stamp = System.currentTimeMillis() - prepareLogcat
+                            logMsg.value = getTimeStamp(stamp)
+                            prepareLogcat = 0L
+                        }
+                    }
                 }
             } catch (e : Exception) {
                 Log.e("SG2","uiHandler : ", e)
@@ -1688,14 +1695,11 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
     override fun onPrepared(duration: Int) {
         Handler(Looper.getMainLooper()).post {
             durationValue.value = duration
-            val stamp = System.currentTimeMillis() - prepareLogcat
-            logMsg.value = getTimeStamp(stamp)
         }
 
-        Handler(Looper.getMainLooper()).postDelayed({
-            playerController.setPlay()
-            onBuffering(false)
-        }, 500)
+//        Handler(Looper.getMainLooper()).postDelayed({
+//            playerController.setPlay()
+//        }, 500)
     }
 
     override fun onPreload(percent: Int) {
@@ -1735,18 +1739,25 @@ class MainViewModel(application: Application) : BaseViewModel(application), Play
             //pause 후 1초 뒤 resume
             if (::playerController.isInitialized && playerController.isPlaying) {
                 playerController.setPause()
+
+                bufferingHandler.removeMessages(0)
+                uiHandler.sendEmptyMessage(AppConst.COMMON.LOADING_DIALOG_SHOW)
             }
-            bufferingHandler.removeMessages(0)
-            uiHandler.sendEmptyMessage(AppConst.COMMON.LOADING_DIALOG_SHOW)
         } else {
+            Log.e("SG2","onBuffering : " + false)
+
+            uiHandler.removeMessages(AppConst.COMMON.PREPARE_LOGCAT_UI)
+            uiHandler.sendEmptyMessage(AppConst.COMMON.PREPARE_LOGCAT_UI)
+
             bufferingHandler.removeMessages(0)
-            bufferingHandler.sendEmptyMessageDelayed(0, 1000)
+            bufferingHandler.sendEmptyMessageDelayed(0, 500)
         }
     }
 
     val bufferingHandler = object : Handler() {
         override fun handleMessage(msg: Message) {
             super.handleMessage(msg)
+            Log.e("SG2","onBuffering done")
 
             uiHandler.sendEmptyMessage(AppConst.COMMON.LOADING_DIALOG_DISMISS)
             if (playerController != null) {

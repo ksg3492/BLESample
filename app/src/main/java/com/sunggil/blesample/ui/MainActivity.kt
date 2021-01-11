@@ -61,7 +61,7 @@ class MainActivity : BaseActivity<ActivityMainBinding, MainViewModel>() {
                 val binder = service as ExoPlayerService.LocalBinder
                 playerServicePlayer = binder.service
                 getViewModel().setPlayerService(playerServicePlayer)
-//                playerServicePlayer.setSurfaceHolder(surfaceHolder)
+                playerServicePlayer.setSurfaceHolder(surfaceHolder)
                 mBound = true
             }
         }

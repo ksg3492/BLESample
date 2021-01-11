@@ -33,7 +33,7 @@ class AppConst {
         companion object {
             var IS_CLIENT                                     = true
             val MIN_PRELOAD_BUFFER_PERCENT                    = 10 // 5%
-            var MIN_PRELOAD_BUFFER_SIZE                  = 200 * 1024   //150 kByte
+            var MIN_PRELOAD_BUFFER_SIZE                  = 150 * 1024   //150 kByte
 
             val PING                                          = 0x0200
 
@@ -46,6 +46,7 @@ class AppConst {
             val DOWNLOAD_SPEED_UI                             = 0x0206
             val PRELOAD_PERCENTAGE_UI                         = 0x0207
             val DOWNLOADED_SIZE_UI                            = 0x0208
+            val PREPARE_LOGCAT_UI                             = 0x0209
         }
     }
 

@@ -276,20 +276,20 @@ public class ExoPlayerServiceMediaPlayer extends Service implements PlayerContro
     class PrepareThread extends Thread {
         private MediaPlayer mediaPlayer = null;
 
-                private String mFilePath = "";
-                private long mPreparedSize = 0L;
+        private String mFilePath = "";
+        private long mPreparedSize = 0L;
 
-                private boolean mIsPause = false;
-                private boolean mIsSeek = false;
-                private long mSeekTime = 0;
+        private boolean mIsPause = false;
+        private boolean mIsSeek = false;
+        private long mSeekTime = 0;
 
-                private long duration = 0L;
+        private long duration = 0L;
 
-                private int fileLength = 0;
-                private boolean isPrepared = false;
-                private boolean isAddbyteDone = true;
+        private int fileLength = 0;
+        private boolean isPrepared = false;
+        private boolean isAddbyteDone = true;
 
-                public PrepareThread(String url, int length) {
+        public PrepareThread(String url, int length) {
             mFilePath = url;
             fileLength = length;
             setPriority(Thread.MAX_PRIORITY);

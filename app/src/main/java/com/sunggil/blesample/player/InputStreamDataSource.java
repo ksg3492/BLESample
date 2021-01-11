@@ -66,12 +66,12 @@ public class InputStreamDataSource implements DataSource {
         if (mBuffer != null) {
             System.arraycopy(data, 0, mBuffer, writeIndex, length);
 
-            try {
-                inputStream = new FileInputStream(new File(mFilePath));
-                inputStream.skip(readed);
-            } catch (Exception e) {
-                Log.e("SG2","inputData Error : " , e);
-            }
+//            try {
+//                inputStream = new FileInputStream(new File(mFilePath));
+//                inputStream.skip(readed);
+//            } catch (Exception e) {
+//                Log.e("SG2","inputData Error : " , e);
+//            }
 
             writeIndex += length;
 
@@ -88,12 +88,9 @@ public class InputStreamDataSource implements DataSource {
 
     @Override
     public int read(byte[] buffer, int offset, int readLength) throws IOException {
-        if (readed == writeIndex) {
-            return -1;
-        }
-
-//        Log.e("SG2","InputStreamDataSource buffer size : " + buffer.length);
-//        Log.e("SG2","InputStreamDataSource offset : " + offset + ", readLength : "+ readLength);
+//        if (readed == writeIndex) {
+//            return -1;
+//        }
 
         if (readed + readLength > writeIndex) {
             if (fileSize == writeIndex) {

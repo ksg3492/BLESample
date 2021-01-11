@@ -49,9 +49,9 @@ public class BufferMediaDataSource extends MediaDataSource {
 
     @Override
     public int readAt(long position, byte[] buffer, int offset, int size) throws IOException {
-        if(position == writeIndex) {
-            return -1;
-        }
+//        if(position == writeIndex) {
+//            return -1;
+//        }
 
         if(position + size > writeIndex) {
             if(fileSize == writeIndex) {
